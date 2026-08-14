@@ -1,26 +1,165 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Système de design — back-office « Comptoir »
+ *
+ * Parti pris : un outil de travail utilisé plusieurs heures par jour, pas une
+ * vitrine. La couleur y est fonctionnelle — elle sert à repérer un statut de
+ * commande en un coup d'œil, jamais à décorer. D'où une seule couleur de
+ * marque (cobalt), et des couleurs de statut réservées à leur usage : rien
+ * d'autre dans l'interface n'a le droit d'être vert, orange ou rouge.
+ *
+ * Le fond est un blanc chaud plutôt que le gris-bleu froid habituel des
+ * tableaux de bord : sur une longue session, il fatigue moins les yeux et
+ * fait ressortir les surfaces blanches des cartes.
+ */
+
+@theme {
+  /* --- Marque ---------------------------------------------------------- */
+  --color-cobalt-50: #eef2ff;
+  --color-cobalt-100: #dfe6ff;
+  --color-cobalt-200: #c4d0ff;
+  --color-cobalt-300: #9cb0ff;
+  --color-cobalt-400: #6d85ff;
+  --color-cobalt-500: #2b4eff;
+  --color-cobalt-600: #1a37e6;
+  --color-cobalt-700: #1429b4;
+  --color-cobalt-800: #14268f;
+  --color-cobalt-900: #152570;
+
+  /* --- Neutres chauds --------------------------------------------------- */
+  --color-ink-50: #f7f7f5;
+  --color-ink-100: #eeeeea;
+  --color-ink-200: #e0e0da;
+  --color-ink-300: #c5c5bc;
+  --color-ink-400: #9a9a90;
+  --color-ink-500: #74746b;
+  --color-ink-600: #5a5a52;
+  --color-ink-700: #454540;
+  --color-ink-800: #2a2a27;
+  --color-ink-900: #161614;
+
+  /* --- Statuts : usage strictement réservé ------------------------------ */
+  /* Teintes assombries jusqu'à franchir 4,5:1 sur leur fond pâle : une
+   * pastille de statut est du texte, elle doit être lisible comme du texte. */
+  --color-success: #0b7a44;
+  --color-success-soft: #e6f6ed;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf3e3;
+  --color-danger: #c02a30;
+  --color-danger-soft: #fdeceb;
+  --color-info: #0369a1;
+  --color-info-soft: #e6f3fb;
+
+  /* --- Séries de graphiques -------------------------------------------- */
+  --color-chart-1: #2b4eff;
+  --color-chart-2: #00b3a4;
+  --color-chart-3: #f2695f;
+  --color-chart-4: #f2b134;
+  --color-chart-5: #7b5cff;
+
+  /* --- Surfaces --------------------------------------------------------- */
+  --color-canvas: #fbfbf8;
+  --color-surface: #ffffff;
+  --color-rail: #161614;
+
+  /* --- Typographie ------------------------------------------------------
+   * Bricolage Grotesque pour les titres : une grotesque contemporaine dont
+   * les contre-formes serrées donnent du caractère sans nuire à la lecture.
+   * Public Sans pour l'interface : dessinée pour l'administration américaine,
+   * donc optimisée pour les formulaires denses et les longues sessions.
+   * IBM Plex Mono pour les chiffres : chasse fixe indispensable dès qu'on
+   * empile des montants dans une colonne. */
+  --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* --- Rythme ----------------------------------------------------------- */
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+
+  /* Ombre unique et discrète : la hiérarchie passe par le trait et l'espace,
+   * pas par des ombres empilées. */
+  --shadow-card: 0 1px 2px rgb(22 22 20 / 0.04), 0 1px 3px rgb(22 22 20 / 0.06);
+  --shadow-pop: 0 12px 32px -8px rgb(22 22 20 / 0.18);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv05' 1;
+  }
+
+  /* Les titres portent la police d'affichage et un crénage resserré : c'est
+   * ce qui distingue visuellement une section d'un simple libellé. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  /* Chiffres alignés partout : sans ça, une colonne de montants se décale
+   * d'une ligne à l'autre et devient illisible. */
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Anneau de focus unique et visible, jamais supprimé. */
+  :focus-visible {
+    outline: 2px solid var(--color-cobalt-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-cobalt-200);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Fine grille de repère derrière l'en-tête des pages : donne une texture
+   * d'atelier sans bruit visuel, et disparaît en mouvement réduit. */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgb(22 22 20 / 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(22 22 20 / 0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .animate-in {
+    animation: rise 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Une animation qui n'exprime pas une causalité n'a pas lieu d'être ; celles
+ * qui restent sont neutralisées si l'utilisateur le demande. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

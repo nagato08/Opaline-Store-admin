@@ -1,0 +1,31 @@
+# Déploiement du back-office sur le VPS.
+#
+# Pas de base de données ni de cache ici — c'est un client de l'API. Comme
+# `back_ecommerce`, aucun port n'est publié : nginx-proxy-manager (déjà en
+# place sur le VPS, partagé avec les autres projets) route par nom de
+# conteneur sur le réseau externe `web`.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+
+name: opaline-admin
+
+services:
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/nagato08/opaline-admin:latest}
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.opaline.tadjo.dev/api}
+    container_name: opaline-admin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    networks: [web]
+
+networks:
+  # Créé une fois pour tout le VPS, pas par ce fichier (voir back_ecommerce/DEPLOIEMENT.md).
+  web:
+    external: true
