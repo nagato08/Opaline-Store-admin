@@ -5,6 +5,13 @@
 # place sur le VPS, partagé avec les autres projets) route par nom de
 # conteneur sur le réseau externe `web`.
 #
+# Deux variables sont obligatoires à l'exécution, dans un `.env` à côté de ce
+# fichier (jamais versionné) :
+#
+#   SESSION_SECRET=…   32 caractères minimum — signe le cookie de session.
+#                      `openssl rand -hex 32`
+#   API_URL=…          adresse interne de l'API sur le réseau Docker.
+#
 #   docker compose -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.prod.yml up -d
 
@@ -23,6 +30,13 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
+      # Le cookie de session est signé avec ce secret : le changer déconnecte
+      # tout le monde, l'omettre empêche le back-office de démarrer.
+      SESSION_SECRET: ${SESSION_SECRET:?requis}
+      # Les appels serveur passent par le réseau Docker et ne sortent pas de
+      # la machine. `NEXT_PUBLIC_API_URL`, figé au build, reste l'adresse
+      # publique utilisée par le navigateur.
+      API_URL: ${API_URL:-http://opaline-api:3000/api}
     networks: [web]
 
 networks:

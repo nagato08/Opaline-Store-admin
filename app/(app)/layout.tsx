@@ -1,19 +1,46 @@
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { notifications } from '@/lib/demo/notifications';
+import { SESSION_COOKIE, type SessionUser, openSession } from '@/lib/session';
 
-/**
- * Le compte connecté viendra de la session. Il est isolé ici plutôt que semé
- * dans la barre : le jour où l'API répond, il n'y a qu'une ligne à remplacer.
- */
-const account = {
-  name: 'Jérémie T.',
-  initials: 'JT',
-  role: 'Administrateur',
-  email: 'admin@example.com',
+/** Libellés des rôles, tels qu'on les nomme dans la boutique. */
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Administrateur',
+  MANAGER: 'Gérant',
+  FULFILLMENT: 'Préparation',
+  SUPPORT: 'Support',
 };
 
-export default function AppLayout({ children }: LayoutProps<'/'>) {
+function toAccount(user: SessionUser) {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+
+  return {
+    name,
+    // Initiales tirées du nom affiché : un compte sans prénom ni nom retombe
+    // sur son adresse, et la première lettre reste lisible.
+    initials: name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? '')
+      .join(''),
+    role: ROLE_LABELS[user.role] ?? user.role,
+    email: user.email,
+  };
+}
+
+export default async function AppLayout({ children }: LayoutProps<'/'>) {
+  const store = await cookies();
+  const session = await openSession(store.get(SESSION_COOKIE)?.value);
+
+  // Le middleware a déjà redirigé, mais le rendu ne doit pas en dépendre :
+  // une route qui échapperait au `matcher` afficherait sinon la coquille du
+  // back-office à un visiteur sans session.
+  if (!session) redirect('/connexion');
+
+  const account = toAccount(session.user);
+
   return (
     <div className="flex min-h-dvh">
       {/* Lien d'évitement.
