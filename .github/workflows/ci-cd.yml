@@ -36,8 +36,12 @@ jobs:
 
       - run: npm ci
 
+      # `next typegen` d'abord : les types globaux de routes (`PageProps`,
+      # `LayoutProps`, `RouteContext`) sont générés dans `.next/types`, qui
+      # n'existe pas sur un dépôt fraîchement cloné. Sans lui, `tsc` échoue
+      # sur « Cannot find name 'PageProps' ».
       - name: Types
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       # Sans `--fix` : la CI vérifie, elle ne corrige pas à la place de
       # l'auteur du commit.
