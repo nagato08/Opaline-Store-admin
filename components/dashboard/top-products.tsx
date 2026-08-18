@@ -1,5 +1,5 @@
 import { money, number, share } from '@/lib/format';
-import type { TopProduct } from '@/lib/demo';
+import type { TopProduct } from '@/lib/data/dashboard';
 
 /**
  * Meilleures ventes.

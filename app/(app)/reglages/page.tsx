@@ -1,8 +1,12 @@
+import { redirect } from 'next/navigation';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge, Dot } from '@/components/ui/badge';
 import { Card, CardHeader } from '@/components/ui/card';
+import { getStoreSettings } from '@/lib/data/settings';
+import { getSession } from '@/lib/current-session';
 import { StoreSettingsForm } from './store-settings-form';
 
+export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Réglages — Comptoir' };
 
 /**
@@ -45,7 +49,12 @@ function Section({ title, description, children }: { title: string; description:
   );
 }
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
+  const store = await getStoreSettings(session);
+
   return (
     /* L'en-tête reste sur la largeur commune à toutes les pages : sa trame
        s'étend d'un bord à l'autre, et le titre tombe au même endroit d'un
@@ -58,7 +67,7 @@ export default function SettingsPage() {
       />
 
       <div className="max-w-4xl space-y-6">
-        <StoreSettingsForm />
+        <StoreSettingsForm storeName={store.name} contactEmail={store.contactEmail} />
 
         <Section
           title="Pays et taxes"

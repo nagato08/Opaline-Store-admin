@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Package } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -8,7 +8,9 @@ import { Card, CardHeader, EmptyState } from '@/components/ui/card';
 import { DefinitionList } from '@/components/ui/definition-list';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { dayMonth, money, number, shortDate, untilDay } from '@/lib/format';
-import { ORDER_STATUSES, lotByNumber, orders } from '@/lib/demo';
+import { lotByNumber } from '@/lib/data/stock';
+import { ORDER_STATUSES, listOrdersByLot } from '@/lib/data/orders';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +20,12 @@ export async function generateMetadata({ params }: PageProps<'/stock/lots/[lot]'
 }
 
 export default async function LotPage({ params }: PageProps<'/stock/lots/[lot]'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const { lot: lotNumber } = await params;
   const now = new Date();
-  const lot = lotByNumber(decodeURIComponent(lotNumber), now);
+  const lot = await lotByNumber(session, decodeURIComponent(lotNumber));
 
   if (!lot) notFound();
 
@@ -30,9 +35,7 @@ export default async function LotPage({ params }: PageProps<'/stock/lots/[lot]'>
   /* Le point du lot : retrouver *qui* l'a reçu. C'est ce qui transforme un
      rappel produit en quelques courriels ciblés au lieu d'un message à toute
      la base — et c'est pour ça que `OrderItem.lotNumbers` existe. */
-  const affected = orders(now).filter((order) =>
-    order.lines.some((line) => line.lotNumbers?.includes(lot.lotNumber)),
-  );
+  const affected = await listOrdersByLot(session, lot.lotNumber);
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -138,7 +141,7 @@ export default async function LotPage({ params }: PageProps<'/stock/lots/[lot]'>
                   <Cell className="whitespace-nowrap text-ink-500">
                     {shortDate(order.placedAt)}
                   </Cell>
-                  <NumCell>{money(order.totalCents)}</NumCell>
+                  <NumCell>{money(order.totalCents, order.currencyCode)}</NumCell>
                 </Row>
               ))}
             </Table>

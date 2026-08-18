@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
-import { PERIODS, type PeriodKey } from '@/lib/demo';
+import { PERIODS, type PeriodKey } from '@/lib/data/dashboard';
 
 /**
  * Sélecteur de période.

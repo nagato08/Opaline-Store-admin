@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Download, Inbox, Package } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -8,32 +9,22 @@ import { FilterTabs } from '@/components/ui/filter-tabs';
 import { SearchField } from '@/components/ui/search-field';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { money, number, shortDate } from '@/lib/format';
-import { ORDER_STATUSES, orders, ordersByStatus, toStatusKey } from '@/lib/demo';
+import { ORDER_STATUSES, listOrders, toStatusKey } from '@/lib/data/orders';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Commandes — Comptoir' };
 
 export default async function OrdersPage({ searchParams }: PageProps<'/commandes'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const params = await searchParams;
   const status = toStatusKey(params.statut);
   const query = typeof params.q === 'string' ? params.q.trim() : '';
 
-  const now = new Date();
-  const all = orders(now);
-  const counts = ordersByStatus();
-
-  /* Le filtre par statut et la recherche s'appliquent l'un après l'autre : on
-     cherche « Berger dans ce qui reste à préparer », pas l'un ou l'autre. */
-  const filtered = all
-    .filter((order) => (status ? order.status === status : true))
-    .filter((order) =>
-      query
-        ? `${order.number} ${order.customer} ${order.email}`
-            .toLocaleLowerCase('fr')
-            .includes(query.toLocaleLowerCase('fr'))
-        : true,
-    );
+  const { orders: filtered, total, counts } = await listOrders(session, { status, search: query || undefined });
 
   /* Le filtre courant est repassé à l'export sous la forme exacte où l'écran
      le lit : `statut` doit être le slug validé, pas la valeur brute de l'URL,
@@ -44,11 +35,11 @@ export default async function OrdersPage({ searchParams }: PageProps<'/commandes
   const exportQuery = exportParams.size > 0 ? `?${exportParams}` : '';
 
   const tabs = [
-    { label: 'Toutes', count: all.length },
+    { label: 'Toutes', count: total },
     ...counts.map((slice) => ({
       value: ORDER_STATUSES[slice.key].slug,
       label: slice.label,
-      count: all.filter((order) => order.status === slice.key).length,
+      count: slice.count,
     })),
   ];
 
@@ -138,16 +129,16 @@ export default async function OrdersPage({ searchParams }: PageProps<'/commandes
                 <Cell className="text-ink-600">
                   <span className="flex items-center gap-1.5 whitespace-nowrap">
                     <Package aria-hidden className="size-3.5 shrink-0 text-ink-400" />
-                    {order.shipping}
+                    {order.shippingLabel}
                   </span>
                 </Cell>
                 <Cell className="whitespace-nowrap text-ink-500">{shortDate(order.placedAt)}</Cell>
                 <NumCell>
-                  {money(order.totalCents)}
-                  {/* Le Canada affiche hors taxe et ajoute TPS/TVQ à la caisse :
-                      un total canadien ne se compare pas à un total français
-                      sans le dire. */}
-                  {order.country === 'CA' ? (
+                  {money(order.totalCents, order.currencyCode)}
+                  {/* Le régime d'affichage suit le pays de la commande, pas une
+                      règle « Canada » codée en dur : le Canada affiche hors
+                      taxe et ajoute TPS/TVQ à la caisse. */}
+                  {!order.pricesIncludeTax ? (
                     <span className="ml-1.5 font-sans text-xs font-normal text-ink-400">
                       HT
                     </span>

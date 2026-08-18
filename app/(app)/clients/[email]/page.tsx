@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Check, Download, Inbox, X } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -8,24 +8,29 @@ import { Card, CardHeader, EmptyState } from '@/components/ui/card';
 import { DefinitionList } from '@/components/ui/definition-list';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { money, number, shortDate } from '@/lib/format';
-import { ORDER_STATUSES, customerByEmail, lastOrderAt, ordersOf } from '@/lib/demo';
+import { getCustomer } from '@/lib/data/customers';
+import { ORDER_STATUSES } from '@/lib/data/orders';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: PageProps<'/clients/[email]'>) {
   const { email } = await params;
-  const customer = customerByEmail(decodeURIComponent(email));
+  const session = await getSession();
+  const customer = session ? await getCustomer(session, decodeURIComponent(email)) : null;
   return { title: `${customer?.name ?? 'Client introuvable'} — Comptoir` };
 }
 
 export default async function CustomerPage({ params }: PageProps<'/clients/[email]'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const { email } = await params;
-  const customer = customerByEmail(decodeURIComponent(email));
+  const customer = await getCustomer(session, decodeURIComponent(email));
 
   if (!customer) notFound();
 
-  const now = new Date();
-  const history = ordersOf(customer.email, now);
+  const history = customer.orders;
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -66,8 +71,8 @@ export default async function CustomerPage({ params }: PageProps<'/clients/[emai
           {history.length === 0 ? (
             <EmptyState
               icon={Inbox}
-              title="Aucune commande sur la période"
-              description="Ce client n’a pas de commande dans les douze dernières reçues."
+              title="Aucune commande"
+              description="Ce client n’a encore passé aucune commande."
               action={<LinkButton href="/commandes">Voir toutes les commandes</LinkButton>}
             />
           ) : (
@@ -102,8 +107,8 @@ export default async function CustomerPage({ params }: PageProps<'/clients/[emai
                     {shortDate(order.placedAt)}
                   </Cell>
                   <NumCell>
-                    {money(order.totalCents)}
-                    {order.country === 'CA' ? (
+                    {money(order.totalCents, order.currencyCode)}
+                    {!order.pricesIncludeTax ? (
                       <span className="ml-1.5 font-sans text-xs font-normal text-ink-400">HT</span>
                     ) : null}
                   </NumCell>
@@ -116,33 +121,38 @@ export default async function CustomerPage({ params }: PageProps<'/clients/[emai
         <div className="min-w-0 space-y-6">
           <Card className="min-w-0">
             <CardHeader title="Coordonnées" />
-            <address className="px-5 py-4 text-sm not-italic text-ink-700">
-              <span className="block font-medium text-ink-900">{customer.name}</span>
-              <span className="block">{customer.address.line1}</span>
-              <span className="block">
-                <span data-numeric className="font-mono">
-                  {customer.address.postalCode}
-                </span>{' '}
-                {customer.address.city}
-              </span>
-              <span className="block">{customer.address.country}</span>
-            </address>
+            {customer.address ? (
+              <address className="px-5 py-4 text-sm not-italic text-ink-700">
+                <span className="block font-medium text-ink-900">{customer.name}</span>
+                <span className="block">{customer.address.line1}</span>
+                {customer.address.line2 ? <span className="block">{customer.address.line2}</span> : null}
+                <span className="block">
+                  <span data-numeric className="font-mono">
+                    {customer.address.postalCode}
+                  </span>{' '}
+                  {customer.address.city}
+                </span>
+                <span className="block">{customer.address.countryCode}</span>
+              </address>
+            ) : (
+              <p className="px-5 py-4 text-sm text-ink-500">Aucune adresse connue.</p>
+            )}
           </Card>
 
           <Card className="min-w-0">
             <CardHeader title="Activité" />
             <DefinitionList
               items={[
-                { term: 'Commandes', value: number(customer.orders), numeric: true },
+                { term: 'Commandes', value: number(customer.orderCount), numeric: true },
                 { term: 'Total dépensé', value: money(customer.spentCents), numeric: true },
                 {
                   term: 'Panier moyen',
-                  value: money(Math.round(customer.spentCents / customer.orders)),
+                  value: money(customer.averageCents),
                   numeric: true,
                 },
                 {
                   term: 'Dernière commande',
-                  value: shortDate(lastOrderAt(customer, now)),
+                  value: customer.lastOrderAt ? shortDate(customer.lastOrderAt) : '—',
                   numeric: true,
                 },
                 {
@@ -165,7 +175,7 @@ export default async function CustomerPage({ params }: PageProps<'/clients/[emai
             <ul className="divide-y divide-ink-200/70">
               {[
                 { label: 'Lettre d’information', granted: customer.consents.newsletter },
-                { label: 'Personnalisation des offres', granted: customer.consents.profiling },
+                { label: 'Cookies marketing', granted: customer.consents.marketingCookies },
               ].map((consent) => (
                 <li
                   key={consent.label}

@@ -1,6 +1,10 @@
 'use server';
 
-import { type FormState, readValues, required, unavailable } from '@/lib/form';
+import { redirect } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { getSession } from '@/lib/current-session';
+import { createCampaign as createCampaignApi, type Audience, type Placement, type Trigger } from '@/lib/data/campaigns';
+import { type FormState, readValues, required } from '@/lib/form';
 
 export async function createCampaign(_previous: FormState, data: FormData): Promise<FormState> {
   const values = readValues(data);
@@ -15,8 +19,8 @@ export async function createCampaign(_previous: FormState, data: FormData): Prom
   const trigger = required(data, 'trigger');
   if (!trigger) errors.trigger = 'Choisissez un déclenchement.';
 
-  const targeting = required(data, 'targeting');
-  if (!targeting) errors.targeting = 'Décrivez l’audience visée.';
+  const audience = required(data, 'audience');
+  if (!audience) errors.audience = 'Choisissez une audience.';
 
   const startsAt = required(data, 'startsAt');
   const endsAt = required(data, 'endsAt');
@@ -30,5 +34,22 @@ export async function createCampaign(_previous: FormState, data: FormData): Prom
     return { status: 'invalid', message: 'Corrigez les champs signalés avant de continuer.', errors, values };
   }
 
-  return unavailable(`La campagne « ${name} »`);
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
+  try {
+    await createCampaignApi(session, {
+      name,
+      placement: placement as Placement,
+      trigger: trigger as Trigger,
+      audience: audience as Audience,
+      startsAt: new Date(startsAt).toISOString(),
+      endsAt: new Date(endsAt).toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : 'Erreur inattendue. Réessayez.';
+    return { status: 'invalid', message, errors: {}, values };
+  }
+
+  redirect('/campagnes');
 }

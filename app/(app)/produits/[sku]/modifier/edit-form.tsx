@@ -7,11 +7,11 @@ import { Field, useFieldValues } from '@/components/ui/field';
 import { FormNotice } from '@/components/ui/form-notice';
 import { ImagePicker, type PickedImage } from '@/components/ui/image-picker';
 import { SubmitButton } from '@/components/ui/submit-button';
-import { PRODUCT_STATUSES, type DemoProduct } from '@/lib/demo';
+import { PRODUCT_STATUSES, type ProductDetail } from '@/lib/data/products';
 import { IDLE } from '@/lib/form';
 import { updateProduct } from './actions';
 
-export function EditForm({ product }: { product: DemoProduct }) {
+export function EditForm({ product }: { product: ProductDetail }) {
   const [state, action] = useActionState(updateProduct, IDLE);
   const { field, formKey } = useFieldValues(
     {
@@ -23,7 +23,7 @@ export function EditForm({ product }: { product: DemoProduct }) {
     state,
   );
   const [images, setImages] = useState<PickedImage[]>(() =>
-    product.images.map((image, index) => ({ id: `${product.sku}-${index}`, url: image.url, alt: image.alt })),
+    product.images.map((image, index) => ({ id: `${product.sku}-${index}`, url: image.url, alt: '' })),
   );
 
   return (
@@ -40,6 +40,10 @@ export function EditForm({ product }: { product: DemoProduct }) {
       />
 
       <form key={formKey} action={action} className="space-y-6" noValidate>
+        <input type="hidden" name="productId" value={product.id} />
+        <input type="hidden" name="variantId" value={product.defaultVariantId ?? ''} />
+        <input type="hidden" name="slug" value={product.slug} />
+        <input type="hidden" name="sku" value={product.sku} />
         <Card className="min-w-0">
           <CardHeader description="La référence (SKU) ne se modifie pas ici : elle est citée dans les commandes déjà passées, la changer casserait leur historique." title="Identification" />
           <div className="grid gap-5 p-5 sm:grid-cols-2">

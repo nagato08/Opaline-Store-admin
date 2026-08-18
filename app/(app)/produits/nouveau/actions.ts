@@ -1,14 +1,13 @@
 'use server';
 
-import { type FormState, readValues, required, toCents, unavailable } from '@/lib/form';
+import { redirect } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { getSession } from '@/lib/current-session';
+import { createProduct as createProductApi } from '@/lib/data/products';
+import { type FormState, readValues, required, toCents } from '@/lib/form';
 
 /**
  * Création d'un produit.
- *
- * La validation est réelle — champs requis, prix positif — même si l'écriture
- * ne l'est pas encore : un formulaire qui accepte n'importe quoi parce que
- * « de toute façon ça ne sauvegarde pas » habituerait à mal saisir, et le jour
- * où l'API répond, les mauvaises habitudes suivent.
  */
 export async function createProduct(_previous: FormState, data: FormData): Promise<FormState> {
   const values = readValues(data);
@@ -23,8 +22,8 @@ export async function createProduct(_previous: FormState, data: FormData): Promi
     errors.sku = 'Uniquement des majuscules, chiffres et tirets.';
   }
 
-  const category = required(data, 'category');
-  if (!category) errors.category = 'Choisissez une catégorie.';
+  const categoryId = required(data, 'categoryId');
+  if (!categoryId) errors.categoryId = 'Choisissez une catégorie.';
 
   const priceRaw = required(data, 'price');
   const priceCents = toCents(priceRaw);
@@ -33,9 +32,12 @@ export async function createProduct(_previous: FormState, data: FormData): Promi
   else if (!priceRaw) errors.price = 'Le prix est obligatoire.';
 
   const ecoTaxRaw = data.get('ecoTax') as string;
-  if (ecoTaxRaw && toCents(ecoTaxRaw) === null) {
+  const ecoTaxCents = ecoTaxRaw ? toCents(ecoTaxRaw) : 0;
+  if (ecoTaxRaw && ecoTaxCents === null) {
     errors.ecoTax = 'Montant d’éco-participation invalide.';
   }
+
+  const description = (data.get('description') as string | null)?.trim() ?? '';
 
   if (Object.keys(errors).length > 0) {
     return {
@@ -46,5 +48,22 @@ export async function createProduct(_previous: FormState, data: FormData): Promi
     };
   }
 
-  return unavailable(`« ${name} »`);
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
+  try {
+    await createProductApi(session, {
+      name,
+      sku,
+      categoryId,
+      description: description || undefined,
+      priceCents: priceCents as number,
+      ecoTaxCents: ecoTaxCents ?? 0,
+    });
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : 'Erreur inattendue. Réessayez.';
+    return { status: 'invalid', message, errors: {}, values };
+  }
+
+  redirect(`/produits/${encodeURIComponent(sku)}`);
 }

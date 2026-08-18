@@ -64,6 +64,12 @@ export function toQuantity(input: string): number | null {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+/** Quantité signée — un ajustement de stock peut retirer autant qu'ajouter. */
+export function toSignedQuantity(input: string): number | null {
+  const value = Number(input.replace(',', '.').trim());
+  return Number.isFinite(value) && value !== 0 ? value : null;
+}
+
 /**
  * Message unique du cas « pas d'API ».
  *

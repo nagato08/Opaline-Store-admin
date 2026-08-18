@@ -13,17 +13,9 @@ import { saveStoreSettings } from './actions';
  * (`store.name`), le reste — régimes de taxe, transporteurs, prestataires —
  * est un fait d'infrastructure affiché en lecture seule plus bas.
  */
-export function StoreSettingsForm() {
+export function StoreSettingsForm({ storeName, contactEmail }: { storeName: string; contactEmail: string }) {
   const [state, action] = useActionState(saveStoreSettings, IDLE);
-  const { field, formKey } = useFieldValues(
-    {
-      storeName: 'La Maison Comptoir',
-      contactEmail: 'contact@example.fr',
-      currency: 'EUR',
-      locale: 'fr',
-    },
-    state,
-  );
+  const { field, formKey } = useFieldValues({ storeName, contactEmail }, state);
 
   return (
     <Card className="min-w-0">
@@ -40,24 +32,6 @@ export function StoreSettingsForm() {
           <Field label="Adresse de contact" required error={state.errors?.contactEmail}>
             {(props) => (
               <input {...props} {...field('contactEmail')} type="email" />
-            )}
-          </Field>
-
-          <Field label="Devise de référence" hint="Les montants sont stockés en centimes entiers">
-            {(props) => (
-              <select {...props} {...field('currency')}>
-                <option value="EUR">Euro (EUR)</option>
-                <option value="CAD">Dollar canadien (CAD)</option>
-              </select>
-            )}
-          </Field>
-
-          <Field label="Langue de l’interface">
-            {(props) => (
-              <select {...props} {...field('locale')}>
-                <option value="fr">Français</option>
-                <option value="en">English</option>
-              </select>
             )}
           </Field>
         </div>

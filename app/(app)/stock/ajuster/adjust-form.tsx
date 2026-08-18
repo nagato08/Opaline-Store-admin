@@ -9,21 +9,34 @@ import { SubmitButton } from '@/components/ui/submit-button';
 import { number } from '@/lib/format';
 import { IDLE } from '@/lib/form';
 import { adjustStock } from './actions';
-import type { StockLine } from '@/lib/demo';
+import type { Location, StockLine, StockMovementType } from '@/lib/data/stock';
 
-const REASONS = ['Inventaire physique', 'Casse ou produit périmé', 'Retour non conforme', 'Correction d’erreur de saisie'];
+const REASONS: Array<{ label: string; type: StockMovementType }> = [
+  { label: 'Inventaire physique', type: 'ADJUSTMENT' },
+  { label: 'Casse ou produit périmé', type: 'LOSS' },
+  { label: 'Retour non conforme', type: 'RETURN' },
+  { label: 'Correction d’erreur de saisie', type: 'ADJUSTMENT' },
+];
 
-export function AdjustForm({ lines }: { lines: StockLine[] }) {
+function lineKey(line: Pick<StockLine, 'variantId' | 'locationId'>): string {
+  return `${line.variantId}::${line.locationId}`;
+}
+
+export function AdjustForm({ lines, locations }: { lines: StockLine[]; locations: Location[] }) {
   const [state, action] = useActionState(adjustStock, IDLE);
-  const [sku, setSku] = useState('');
+  const [key, setKey] = useState('');
   const { field, formKey } = useFieldValues({}, state);
-  const current = useMemo(() => lines.find((line) => line.sku === sku), [lines, sku]);
+  const current = useMemo(() => lines.find((line) => lineKey(line) === key), [lines, key]);
+  const multiLocation = locations.length > 1;
 
   return (
     <div className="mx-auto w-full max-w-2xl">
       <DetailHeader backHref="/stock" backLabel="Stock" title="Ajuster le stock" />
 
       <form key={formKey} action={action} className="space-y-6" noValidate>
+        <input type="hidden" name="variantId" value={current?.variantId ?? ''} />
+        <input type="hidden" name="locationId" value={current?.locationId ?? ''} />
+
         <Card className="min-w-0">
           <CardHeader
             title="Référence"
@@ -34,16 +47,17 @@ export function AdjustForm({ lines }: { lines: StockLine[] }) {
               {(props) => (
                 <select
                   {...props}
-                  name="sku"
-                  value={sku}
-                  onChange={(event) => setSku(event.target.value)}
+                  name="line"
+                  value={key}
+                  onChange={(event) => setKey(event.target.value)}
                 >
                   <option value="" disabled>
                     Choisir…
                   </option>
                   {lines.map((line) => (
-                    <option key={line.sku} value={line.sku}>
-                      {line.product} — {line.variant} ({line.sku})
+                    <option key={lineKey(line)} value={lineKey(line)}>
+                      {line.product} ({line.sku})
+                      {multiLocation ? ` — ${line.locationName}` : ''}
                     </option>
                   ))}
                 </select>
@@ -70,9 +84,9 @@ export function AdjustForm({ lines }: { lines: StockLine[] }) {
             ) : null}
 
             <Field
-              label="Nouvelle quantité physique"
+              label="Quantité à ajouter ou retirer"
               required
-              hint={current ? `En ${current.unit}` : undefined}
+              hint={current ? `En ${current.unit} — signée : négative pour une sortie` : 'Signée : négative pour une sortie'}
               error={state.errors?.quantity}
             >
               {(props) => (
@@ -81,7 +95,6 @@ export function AdjustForm({ lines }: { lines: StockLine[] }) {
                   {...field('quantity')}
                   type="number"
                   step="0.001"
-                  min="0"
                   inputMode="decimal"
                 />
               )}
@@ -94,8 +107,8 @@ export function AdjustForm({ lines }: { lines: StockLine[] }) {
                     Choisir…
                   </option>
                   {REASONS.map((reason) => (
-                    <option key={reason} value={reason}>
-                      {reason}
+                    <option key={reason.label} value={reason.label}>
+                      {reason.label}
                     </option>
                   ))}
                 </select>

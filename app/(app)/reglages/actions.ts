@@ -1,6 +1,11 @@
 'use server';
 
-import { type FormState, readValues, required, unavailable } from '@/lib/form';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { getSession } from '@/lib/current-session';
+import { setStoreSetting } from '@/lib/data/settings';
+import { type FormState, readValues, required } from '@/lib/form';
 
 /**
  * Réglages de l'enseigne.
@@ -26,5 +31,18 @@ export async function saveStoreSettings(_previous: FormState, data: FormData): P
     return { status: 'invalid', message: 'Corrigez les champs signalés avant de continuer.', errors, values };
   }
 
-  return unavailable('L’enseigne');
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
+  try {
+    await setStoreSetting(session, 'store.name', name);
+    await setStoreSetting(session, 'store.email', email);
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : 'Erreur inattendue. Réessayez.';
+    return { status: 'invalid', message, errors: {}, values };
+  }
+
+  revalidatePath('/reglages');
+
+  return { status: 'saved', message: 'Réglages enregistrés.' };
 }

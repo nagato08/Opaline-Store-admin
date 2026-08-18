@@ -13,6 +13,7 @@ import { createPromotion } from './actions';
 export default function NewPromotionPage() {
   const [state, action] = useActionState(createPromotion, IDLE);
   const [kind, setKind] = useState('automatic');
+  const [discountKind, setDiscountKind] = useState('percentage');
   const { field, formKey } = useFieldValues({}, state);
 
   return (
@@ -23,7 +24,7 @@ export default function NewPromotionPage() {
         <Card className="min-w-0">
           <CardHeader
             title="Remise"
-            description="La remise s’applique avant la taxe : elle réduit la base taxable, jamais l’inverse."
+            description="La remise s’applique avant la taxe : elle réduit la base taxable, jamais l’inverse. Elle porte sur le panier entier — un ciblage par catégorie n’est pas encore disponible depuis cet écran."
           />
           <div className="space-y-5 p-5">
             <Field label="Nom de la promotion" required error={state.errors?.name}>
@@ -86,29 +87,62 @@ export default function NewPromotionPage() {
               </Field>
             ) : null}
 
-            <div className="grid gap-5 sm:grid-cols-2">
+            <fieldset>
+              <legend className="text-sm font-medium text-ink-800">Type de remise</legend>
+              <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
+                {[
+                  { value: 'percentage', label: 'Pourcentage' },
+                  { value: 'fixed', label: 'Montant fixe' },
+                  { value: 'shipping', label: 'Livraison offerte' },
+                ].map((option) => (
+                  <label
+                    key={option.value}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-2.5 rounded-control p-3 text-sm ring-1 ring-inset transition-colors duration-150',
+                      discountKind === option.value
+                        ? 'bg-cobalt-50 ring-cobalt-300'
+                        : 'ring-ink-200 hover:bg-ink-50',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="discountKind"
+                      value={option.value}
+                      checked={discountKind === option.value}
+                      onChange={() => setDiscountKind(option.value)}
+                    />
+                    <span className="font-medium text-ink-900">{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {discountKind !== 'shipping' ? (
               <Field
-                label="Valeur de la remise"
+                label={discountKind === 'percentage' ? 'Pourcentage de remise' : 'Montant de la remise'}
                 required
-                hint="Ex. « −15 % » ou « −5 € dès 40 € »"
+                hint={discountKind === 'percentage' ? 'Entre 1 et 100' : 'En euros'}
                 error={state.errors?.value}
               >
                 {(props) => (
-                  <input {...props} {...field('value')} placeholder="−15 %" />
+                  <div className="relative">
+                    <input
+                      {...props}
+                      {...field('value')}
+                      type="number"
+                      step={discountKind === 'percentage' ? '1' : '0.01'}
+                      min="0"
+                      max={discountKind === 'percentage' ? '100' : undefined}
+                      inputMode="decimal"
+                      className={`${props.className} pr-8`}
+                    />
+                    <span aria-hidden className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-ink-400">
+                      {discountKind === 'percentage' ? '%' : '€'}
+                    </span>
+                  </div>
                 )}
               </Field>
-
-              <Field
-                label="Portée"
-                required
-                hint="Ex. « Mobilier » ou « Tout le catalogue »"
-                error={state.errors?.scope}
-              >
-                {(props) => (
-                  <input {...props} {...field('scope')} placeholder="Tout le catalogue" />
-                )}
-              </Field>
-            </div>
+            ) : null}
           </div>
         </Card>
 

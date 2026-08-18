@@ -1,6 +1,10 @@
 'use server';
 
-import { type FormState, readValues, required, unavailable } from '@/lib/form';
+import { redirect } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { getSession } from '@/lib/current-session';
+import { createPromotion as createPromotionApi, type DiscountKind } from '@/lib/data/promotions';
+import { type FormState, readValues, required } from '@/lib/form';
 
 export async function createPromotion(_previous: FormState, data: FormData): Promise<FormState> {
   const values = readValues(data);
@@ -18,11 +22,19 @@ export async function createPromotion(_previous: FormState, data: FormData): Pro
   if (kind === 'code' && !code) errors.code = 'Le code est obligatoire pour ce type de promotion.';
   if (code && !/^[A-Z0-9]+$/.test(code)) errors.code = 'Majuscules et chiffres uniquement.';
 
-  const value = required(data, 'value');
-  if (!value) errors.value = 'Décrivez la remise, par exemple « −15 % » ou « −5 € dès 40 € ».';
+  const discountKind = required(data, 'discountKind') as DiscountKind;
+  const valueRaw = required(data, 'value');
+  let value: number | undefined;
 
-  const scope = required(data, 'scope');
-  if (!scope) errors.scope = 'Précisez ce à quoi s’applique la remise.';
+  if (discountKind !== 'shipping') {
+    if (!valueRaw) errors.value = 'La valeur de la remise est obligatoire.';
+    else {
+      const parsed = Number(valueRaw.replace(',', '.'));
+      if (!Number.isFinite(parsed) || parsed <= 0) errors.value = 'Valeur invalide.';
+      else if (discountKind === 'percentage' && parsed > 100) errors.value = 'Un pourcentage ne dépasse pas 100.';
+      else value = discountKind === 'percentage' ? Math.round(parsed) : Math.round(parsed * 100);
+    }
+  }
 
   const startsAt = required(data, 'startsAt');
   const endsAt = required(data, 'endsAt');
@@ -36,5 +48,23 @@ export async function createPromotion(_previous: FormState, data: FormData): Pro
     return { status: 'invalid', message: 'Corrigez les champs signalés avant de continuer.', errors, values };
   }
 
-  return unavailable(`La promotion « ${name} »`);
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
+  try {
+    await createPromotionApi(session, {
+      name,
+      code: kind === 'code' ? code : undefined,
+      isAutomatic: kind === 'automatic',
+      discountKind,
+      value,
+      startsAt: new Date(startsAt).toISOString(),
+      endsAt: new Date(endsAt).toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : 'Erreur inattendue. Réessayez.';
+    return { status: 'invalid', message, errors: {}, values };
+  }
+
+  redirect('/promotions');
 }

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Badge, Dot } from '@/components/ui/badge';
 import { dayMonth, number, untilDay } from '@/lib/format';
 import type { BadgeTone } from '@/components/ui/badge';
-import type { ExpiringLot } from '@/lib/demo';
+import type { ExpiringLot } from '@/lib/data/stock';
 
 /**
  * Lots consommables arrivant à échéance.

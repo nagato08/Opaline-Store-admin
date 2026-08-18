@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Download, UserSearch } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -8,35 +9,29 @@ import { FilterTabs } from '@/components/ui/filter-tabs';
 import { SearchField } from '@/components/ui/search-field';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { dayMonth, money, number } from '@/lib/format';
-import { customers, lastOrderAt } from '@/lib/demo';
+import { CUSTOMER_KINDS, listCustomers, toCustomerKind } from '@/lib/data/customers';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Clients — Comptoir' };
 
-const KINDS = {
-  account: { label: 'Avec compte', slug: 'compte' },
-  guest: { label: 'Sans compte', slug: 'invite' },
-};
+const KINDS = CUSTOMER_KINDS;
 
 export default async function CustomersPage({ searchParams }: PageProps<'/clients'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const params = await searchParams;
-  const kind = (Object.keys(KINDS) as Array<keyof typeof KINDS>).find(
-    (key) => KINDS[key].slug === params.type,
-  );
+  const kind = toCustomerKind(params.type);
   const query = typeof params.q === 'string' ? params.q.trim() : '';
 
-  const now = new Date();
-  const all = customers();
-  const filtered = all
-    .filter((customer) => (kind ? customer.kind === kind : true))
-    .filter((customer) =>
-      query
-        ? `${customer.name} ${customer.email}`
-            .toLocaleLowerCase('fr')
-            .includes(query.toLocaleLowerCase('fr'))
-        : true,
-    );
+  const hasFilter = Boolean(kind) || query.length > 0;
+  const [{ customers: all }, filteredResult] = await Promise.all([
+    listCustomers(session, {}),
+    hasFilter ? listCustomers(session, { kind, search: query || undefined }) : Promise.resolve(null),
+  ]);
+  const filtered = filteredResult?.customers ?? all;
 
   const tabs = [
     { label: 'Tous', count: all.length },
@@ -91,7 +86,6 @@ export default async function CustomersPage({ searchParams }: PageProps<'/client
             columns={[
               { label: 'Client' },
               { label: 'Compte' },
-              { label: 'Pays' },
               { label: 'Dernière commande' },
               { label: 'Commandes', align: 'right' },
               { label: 'Total dépensé', align: 'right' },
@@ -115,20 +109,15 @@ export default async function CustomersPage({ searchParams }: PageProps<'/client
                     <Badge tone="neutral">Invité</Badge>
                   )}
                 </Cell>
-                <Cell className="text-ink-600">
-                  {/* Le pays n'est pas décoratif : il décide de l'affichage TTC
-                      ou hors taxe, donc de la lecture des montants ci-contre. */}
-                  {customer.country === 'FR' ? 'France' : 'Canada'}
-                </Cell>
                 {/* La date seule : l'heure d'une commande passée il y a trois
                     semaines n'apprend rien, et douze lignes affichant la même
                     minute donnent l'impression d'une donnée inventée. */}
                 <Cell className="whitespace-nowrap text-ink-500">
-                  {dayMonth(lastOrderAt(customer, now))}
+                  {customer.lastOrderAt ? dayMonth(customer.lastOrderAt) : '—'}
                 </Cell>
                 <Cell align="right">
                   <span data-numeric className="font-mono text-ink-600">
-                    {number(customer.orders)}
+                    {number(customer.orderCount)}
                   </span>
                 </Cell>
                 <NumCell>{money(customer.spentCents)}</NumCell>

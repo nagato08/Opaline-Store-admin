@@ -133,6 +133,50 @@ export async function refreshSession(session: SessionData): Promise<SessionData 
   }
 }
 
+/** Erreur remontée par l'API, avec son code HTTP pour distinguer 404 de 403. */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/**
+ * Appel authentifié à l'API pour les pages et actions serveur du back-office.
+ *
+ * Le jeton d'accès vient de la session scellée. Son renouvellement — le
+ * jeton expire vite — est déjà géré par le middleware avant que la page ne
+ * s'exécute : cette fonction n'a donc pas à réessayer après un 401.
+ */
+export async function apiFetch<T>(
+  session: Pick<SessionData, 'accessToken'>,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await fetch(`${apiBase()}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init.headers,
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { message?: string | string[] } | null;
+    const message = Array.isArray(body?.message) ? body.message.join(' ') : body?.message;
+    throw new ApiError(response.status, message ?? `Erreur API (${response.status}).`);
+  }
+
+  if (response.status === 204) return undefined as T;
+
+  return (await response.json()) as T;
+}
+
 /** Révoque la session côté API. L'échec n'est pas bloquant : le cookie local part quand même. */
 export async function revokeSession(session: SessionData): Promise<void> {
   try {

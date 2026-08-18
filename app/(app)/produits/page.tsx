@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Download, Package, PackageSearch } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -8,27 +9,22 @@ import { FilterTabs } from '@/components/ui/filter-tabs';
 import { SearchField } from '@/components/ui/search-field';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { money, number } from '@/lib/format';
-import { PRODUCT_STATUSES, products, toProductStatus } from '@/lib/demo';
+import { PRODUCT_STATUSES, listProducts, toProductStatus } from '@/lib/data/products';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Produits — Comptoir' };
 
 export default async function ProductsPage({ searchParams }: PageProps<'/produits'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const params = await searchParams;
   const status = toProductStatus(params.etat);
   const query = typeof params.q === 'string' ? params.q.trim() : '';
 
-  const all = products();
-  const filtered = all
-    .filter((product) => (status ? product.status === status : true))
-    .filter((product) =>
-      query
-        ? `${product.name} ${product.sku} ${product.category}`
-            .toLocaleLowerCase('fr')
-            .includes(query.toLocaleLowerCase('fr'))
-        : true,
-    );
+  const { products: filtered, total, counts } = await listProducts(session, { status, search: query || undefined });
 
   /* Le filtre courant part avec l'export, sous sa forme validée : la valeur
      brute de l'URL exporterait tout en prétendant filtrer. */
@@ -38,11 +34,11 @@ export default async function ProductsPage({ searchParams }: PageProps<'/produit
   const exportQuery = exportParams.size > 0 ? `?${exportParams}` : '';
 
   const tabs = [
-    { label: 'Tous', count: all.length },
+    { label: 'Tous', count: total },
     ...(Object.keys(PRODUCT_STATUSES) as Array<keyof typeof PRODUCT_STATUSES>).map((key) => ({
       value: PRODUCT_STATUSES[key].slug,
       label: PRODUCT_STATUSES[key].label,
-      count: all.filter((product) => product.status === key).length,
+      count: counts.find((c) => c.key === key)?.count ?? 0,
     })),
   ];
 
@@ -146,7 +142,7 @@ export default async function ProductsPage({ searchParams }: PageProps<'/produit
                 </Cell>
                 <Cell align="right">
                   <span data-numeric className="font-mono text-ink-600">
-                    {number(product.variants)}
+                    {number(product.variantCount)}
                   </span>
                 </Cell>
                 <Cell align="right">

@@ -1,6 +1,18 @@
 'use server';
 
-import { type FormState, readValues, required, toQuantity, unavailable } from '@/lib/form';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { getSession } from '@/lib/current-session';
+import { adjustStock as adjustStockApi, type StockMovementType } from '@/lib/data/stock';
+import { type FormState, readValues, required, toSignedQuantity } from '@/lib/form';
+
+const REASON_TYPES: Record<string, StockMovementType> = {
+  'Inventaire physique': 'ADJUSTMENT',
+  'Casse ou produit périmé': 'LOSS',
+  'Retour non conforme': 'RETURN',
+  'Correction d’erreur de saisie': 'ADJUSTMENT',
+};
 
 /**
  * Ajustement manuel du stock physique.
@@ -14,13 +26,14 @@ export async function adjustStock(_previous: FormState, data: FormData): Promise
   const values = readValues(data);
   const errors: Record<string, string> = {};
 
-  const sku = required(data, 'sku');
-  if (!sku) errors.sku = 'Choisissez une référence.';
+  const variantId = required(data, 'variantId');
+  const locationId = required(data, 'locationId');
+  if (!variantId || !locationId) errors.sku = 'Choisissez une référence.';
 
   const quantityRaw = required(data, 'quantity');
-  const quantity = toQuantity(quantityRaw);
-  if (!quantityRaw) errors.quantity = 'La nouvelle quantité physique est obligatoire.';
-  else if (quantity === null) errors.quantity = 'Quantité invalide.';
+  const quantity = toSignedQuantity(quantityRaw);
+  if (!quantityRaw) errors.quantity = 'La quantité à ajouter ou retirer est obligatoire.';
+  else if (quantity === null) errors.quantity = 'Quantité invalide — zéro n’est pas un ajustement.';
 
   const reason = required(data, 'reason');
   if (!reason) errors.reason = 'Le motif est obligatoire — il fait foi en cas d’écart constaté plus tard.';
@@ -29,5 +42,26 @@ export async function adjustStock(_previous: FormState, data: FormData): Promise
     return { status: 'invalid', message: 'Corrigez les champs signalés avant de continuer.', errors, values };
   }
 
-  return unavailable(`L’ajustement de ${sku}`);
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
+  const note = required(data, 'note');
+
+  try {
+    await adjustStockApi(session, {
+      variantId,
+      locationId,
+      quantity: quantity as number,
+      type: REASON_TYPES[reason] ?? 'ADJUSTMENT',
+      reason: note ? `${reason} — ${note}` : reason,
+    });
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : 'Erreur inattendue. Réessayez.';
+    return { status: 'invalid', message, errors: {}, values };
+  }
+
+  revalidatePath('/stock');
+  revalidatePath('/stock/ajuster');
+
+  return { status: 'saved', message: 'Ajustement enregistré.' };
 }

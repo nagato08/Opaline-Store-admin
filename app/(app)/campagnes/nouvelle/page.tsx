@@ -7,10 +7,8 @@ import { Field, useFieldValues } from '@/components/ui/field';
 import { FormNotice } from '@/components/ui/form-notice';
 import { SubmitButton } from '@/components/ui/submit-button';
 import { IDLE } from '@/lib/form';
+import { AUDIENCES, PLACEMENTS, TRIGGERS } from '@/lib/data/campaigns';
 import { createCampaign } from './actions';
-
-const PLACEMENTS = ['Bandeau haut', 'Bandeau bas', 'Fenêtre modale'];
-const TRIGGERS = ['Immédiat', 'Après un délai', 'Après un pourcentage de défilement', 'Intention de sortie'];
 
 export default function NewCampaignPage() {
   const [state, action] = useActionState(createCampaign, IDLE);
@@ -58,14 +56,14 @@ export default function NewCampaignPage() {
             </Field>
 
             <div className="sm:col-span-2">
-              <Field
-                label="Audience"
-                required
-                hint="Ex. « Canada, catégorie Alimentaire » ou « Visiteurs sans compte »"
-                error={state.errors?.targeting}
-              >
+              <Field label="Audience" required error={state.errors?.audience}>
                 {(props) => (
-                  <input {...props} {...field('targeting')} placeholder="Tous les visiteurs" />
+                  <select {...props} {...field('audience')}>
+                    <option value="" disabled>Choisir…</option>
+                    {AUDIENCES.map((audience) => (
+                      <option key={audience} value={audience}>{audience}</option>
+                    ))}
+                  </select>
                 )}
               </Field>
             </div>

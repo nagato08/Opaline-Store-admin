@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { number, share } from '@/lib/format';
-import type { StatusSlice } from '@/lib/demo';
+import type { StatusSlice } from '@/lib/data/dashboard';
 
 /**
  * Répartition du carnet de commandes.
@@ -19,7 +19,7 @@ const fills: Record<StatusSlice['tone'], string> = {
   danger: 'bg-danger',
 };
 
-export function StatusBreakdown({ slices }: { slices: StatusSlice[] }) {
+export function StatusBreakdown({ slices, caption }: { slices: StatusSlice[]; caption?: string }) {
   const total = slices.reduce((sum, slice) => sum + slice.count, 0);
 
   return (
@@ -27,7 +27,7 @@ export function StatusBreakdown({ slices }: { slices: StatusSlice[] }) {
       <p data-numeric className="font-mono text-[28px] leading-none font-semibold text-ink-900">
         {number(total)}
       </p>
-      <p className="mt-1.5 text-sm text-ink-500">commandes sur les 30 derniers jours</p>
+      <p className="mt-1.5 text-sm text-ink-500">{caption ?? 'commandes sur les 30 derniers jours'}</p>
 
       {/* Écart de 2 px entre les tranches : sans lui, deux teintes voisines se
           touchent et la frontière devient invisible en vision daltonienne. */}

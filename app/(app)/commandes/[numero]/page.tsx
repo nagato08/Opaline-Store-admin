@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Check, FileText, MapPin, Printer } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -7,14 +7,9 @@ import { LinkButton } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { DefinitionList } from '@/components/ui/definition-list';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
-import { money, number, shortDate, taxRate } from '@/lib/format';
-import {
-  ORDER_STATUSES,
-  customerByEmail,
-  orderByNumber,
-  orderTimeline,
-  orderTotals,
-} from '@/lib/demo';
+import { money, number, shortDate } from '@/lib/format';
+import { ORDER_STATUSES, getOrderDetail } from '@/lib/data/orders';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,20 +19,20 @@ export async function generateMetadata({ params }: PageProps<'/commandes/[numero
 }
 
 export default async function OrderPage({ params }: PageProps<'/commandes/[numero]'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const { numero } = await params;
-  const now = new Date();
-  const order = orderByNumber(decodeURIComponent(numero), now);
+  const detail = await getOrderDetail(session, decodeURIComponent(numero));
 
   // Un numéro inconnu n'est pas une erreur serveur : c'est une page qui
   // n'existe pas, et elle doit répondre 404 pour ne pas être indexée ni mise
   // en cache comme une fiche valide.
-  if (!order) notFound();
+  if (!detail) notFound();
 
-  const totals = orderTotals(order);
-  const timeline = orderTimeline(order);
-  const customer = customerByEmail(order.email);
+  const { order, totals, timeline, shippingAddress } = detail;
   const status = ORDER_STATUSES[order.status];
-  const inclusive = order.country === 'FR';
+  const inclusive = order.pricesIncludeTax;
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -124,21 +119,16 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
                       </span>
                     ) : null}
                   </Cell>
-                  <NumCell>
-                    {number(line.quantity)}{' '}
-                    <span className="font-sans text-xs font-normal text-ink-500">{line.unit}</span>
-                  </NumCell>
-                  <NumCell>{money(line.unitPriceCents)}</NumCell>
+                  <NumCell>{number(line.quantity)}</NumCell>
+                  <NumCell>{money(line.unitPriceCents, order.currencyCode)}</NumCell>
                   <NumCell>
                     {line.discountCents > 0 ? (
-                      <span className="text-success">−{money(line.discountCents)}</span>
+                      <span className="text-success">−{money(line.discountCents, order.currencyCode)}</span>
                     ) : (
                       <span className="text-ink-300">—</span>
                     )}
                   </NumCell>
-                  <NumCell>
-                    {money(Math.round(line.unitPriceCents * line.quantity) - line.discountCents)}
-                  </NumCell>
+                  <NumCell>{money(line.totalCents, order.currencyCode)}</NumCell>
                 </Row>
               ))}
             </Table>
@@ -151,13 +141,15 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
             />
             <DefinitionList
               items={[
-                { term: 'Sous-total', value: money(totals.subtotalCents), numeric: true },
+                { term: 'Sous-total', value: money(totals.subtotalCents, order.currencyCode), numeric: true },
                 ...(totals.discountCents > 0
                   ? [
                       {
                         term: 'Remises',
                         value: (
-                          <span className="text-success">−{money(totals.discountCents)}</span>
+                          <span className="text-success">
+                            −{money(totals.discountCents, order.currencyCode)}
+                          </span>
                         ),
                         numeric: true,
                       },
@@ -165,26 +157,26 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
                   : []),
                 {
                   term: inclusive ? 'Base hors taxe après remise' : 'Base taxable après remise',
-                  value: money(totals.taxableCents),
+                  value: money(totals.taxableCents, order.currencyCode),
                   numeric: true,
                 },
                 ...totals.taxBreakdown.map((bucket) => ({
-                  term: `${inclusive ? 'TVA' : 'TPS + TVQ'} ${taxRate(bucket.rate)} sur ${money(bucket.baseCents)}`,
-                  value: money(bucket.taxCents),
+                  term: `${bucket.name} sur ${money(bucket.baseCents, order.currencyCode)}`,
+                  value: money(bucket.taxCents, order.currencyCode),
                   numeric: true,
                 })),
                 ...(totals.ecoTaxCents > 0
                   ? [
                       {
                         term: 'Éco-participation',
-                        value: money(totals.ecoTaxCents),
+                        value: money(totals.ecoTaxCents, order.currencyCode),
                         numeric: true,
                       },
                     ]
                   : []),
                 {
-                  term: `Livraison — ${order.shipping}`,
-                  value: money(totals.shippingCents),
+                  term: `Livraison — ${order.shippingLabel}`,
+                  value: money(totals.shippingCents, order.currencyCode),
                   numeric: true,
                 },
               ]}
@@ -197,7 +189,7 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
                 data-numeric
                 className="font-mono text-xl font-semibold whitespace-nowrap text-ink-900"
               >
-                {money(totals.totalCents)}
+                {money(totals.totalCents, order.currencyCode)}
               </span>
             </div>
           </Card>
@@ -258,17 +250,20 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
               description="Adresse figée à la commande"
               action={<MapPin aria-hidden className="size-4 text-ink-400" />}
             />
-            {customer ? (
+            {shippingAddress ? (
               <address className="px-5 py-4 text-sm not-italic text-ink-700">
-                <span className="block font-medium text-ink-900">{customer.name}</span>
-                <span className="block">{customer.address.line1}</span>
+                <span className="block font-medium text-ink-900">
+                  {shippingAddress.firstName} {shippingAddress.lastName}
+                </span>
+                <span className="block">{shippingAddress.line1}</span>
+                {shippingAddress.line2 ? <span className="block">{shippingAddress.line2}</span> : null}
                 <span className="block">
                   <span data-numeric className="font-mono">
-                    {customer.address.postalCode}
+                    {shippingAddress.postalCode}
                   </span>{' '}
-                  {customer.address.city}
+                  {shippingAddress.city}
                 </span>
-                <span className="block">{customer.address.country}</span>
+                <span className="block">{shippingAddress.countryCode}</span>
               </address>
             ) : (
               <p className="px-5 py-4 text-sm text-ink-500">Adresse non renseignée.</p>
@@ -276,8 +271,8 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
             <DefinitionList
               className="border-t border-ink-200/70"
               items={[
-                { term: 'Mode', value: order.shipping },
-                { term: 'Paiement', value: order.payment },
+                { term: 'Mode', value: order.shippingLabel },
+                { term: 'Paiement', value: order.paymentLabel },
                 { term: 'Courriel', value: order.email },
               ]}
             />

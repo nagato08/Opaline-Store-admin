@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { AlertTriangle, ArrowRight, PackageX, Truck } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/card';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -9,45 +10,39 @@ import { TopProducts } from '@/components/dashboard/top-products';
 import { StatusBreakdown } from '@/components/dashboard/status-breakdown';
 import { ExpiringLots } from '@/components/dashboard/expiring-lots';
 import { PeriodPicker } from '@/components/dashboard/period-picker';
-import { money, number, share, shortDate } from '@/lib/format';
-import {
-  ORDER_STATUSES,
-  PERIODS,
-  conversionSeries,
-  expiringLots,
-  latestOrders,
-  ordersByStatus,
-  outOfStock,
-  revenueSeries,
-  toPeriodKey,
-  topProducts,
-} from '@/lib/demo';
+import { money, number, shortDate } from '@/lib/format';
+import { PERIODS, getOverview, toPeriodKey } from '@/lib/data/dashboard';
+import { ORDER_STATUSES, listOrders } from '@/lib/data/orders';
+import { expiringLots, listStockLines } from '@/lib/data/stock';
+import { getSession } from '@/lib/current-session';
 
-/**
- * La page est datée : la laisser préparer à la compilation la figerait au jour
- * du déploiement. Le rendu par requête sera de toute façon nécessaire une fois
- * les vrais chiffres branchés.
- */
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage({ searchParams }: PageProps<'/tableau-de-bord'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const periodKey = toPeriodKey((await searchParams).periode);
   const period = PERIODS[periodKey];
   const now = new Date();
 
-  const revenue = revenueSeries(now, period.days, period.bucketDays);
-  const orders = latestOrders(now);
-  const statuses = ordersByStatus();
-  const products = topProducts(period.days);
-  const lots = expiringLots(now);
-  const ruptures = outOfStock();
+  const [overview, orderList, lots, ruptures] = await Promise.all([
+    getOverview(session, period.days),
+    listOrders(session, {}),
+    expiringLots(session, 7),
+    listStockLines(session, { level: 'out' }),
+  ]);
 
-  const caCents = revenue.reduce((sum, point) => sum + point.caCents, 0);
-  const orderCount = revenue.reduce((sum, point) => sum + point.commandes, 0);
-  const toPrepare = statuses.find((slice) => slice.key === 'to-prepare')?.count ?? 0;
-  const sinceYesterday = orders.filter(
+  const orders = orderList.orders.slice(0, 5);
+  const toPrepare = orderList.counts.find((slice) => slice.key === 'to-prepare')?.count ?? 0;
+  const sinceYesterday = orderList.orders.filter(
     (order) => now.getTime() - Date.parse(order.placedAt) < 86_400_000,
   ).length;
+
+  const primaryCurrency = overview.primaryRegime?.currencyCode ?? 'EUR';
+  const primaryTotalCents = overview.primaryRegime?.totalCents ?? 0;
+  const primaryOrderCount = overview.primaryRegime?.orderCount ?? 0;
+  const averageCents = primaryOrderCount ? Math.round(primaryTotalCents / primaryOrderCount) : 0;
 
   const today = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -68,7 +63,7 @@ export default async function DashboardPage({ searchParams }: PageProps<'/tablea
       icon: PackageX,
       tone: 'danger' as const,
       title: `${number(ruptures.length)} produits en rupture`,
-      detail: ruptures.map((item) => `${item.product} (${item.variant})`).join(', '),
+      detail: ruptures.map((item) => `${item.product} (${item.sku})`).join(', '),
       href: '/stock',
     },
     {
@@ -85,7 +80,7 @@ export default async function DashboardPage({ searchParams }: PageProps<'/tablea
       icon: Truck,
       tone: 'info' as const,
       title: `${number(toPrepare)} commandes à préparer`,
-      detail: 'Dont 1 en livraison sur rendez-vous',
+      detail: 'Payées, en attente d’expédition',
       href: '/commandes?statut=a-preparer',
     },
   ];
@@ -127,47 +122,51 @@ export default async function DashboardPage({ searchParams }: PageProps<'/tablea
         <h2 id="indicateurs" className="sr-only">
           Indicateurs de la période
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard
-            label="Chiffre d’affaires"
-            value={money(caCents)}
-            delta={period.deltas.ca}
+            label={`Chiffre d’affaires (${primaryCurrency})`}
+            value={money(primaryTotalCents, primaryCurrency)}
+            delta={overview.revenue.revenueChange ?? undefined}
             hint={period.compare}
             accent="chart-1"
-            spark={revenue.map((point) => point.caCents)}
+            spark={overview.series.map((point) => point.caCents)}
           />
           <StatCard
             label="Commandes"
-            value={number(orderCount)}
-            delta={period.deltas.orders}
+            value={number(overview.revenue.orderCount)}
+            delta={overview.revenue.orderChange ?? undefined}
             hint={period.compare}
             accent="chart-2"
-            spark={revenue.map((point) => point.commandes)}
+            spark={overview.series.map((point) => point.commandes)}
           />
           <StatCard
             label="Panier moyen"
-            value={money(Math.round(caCents / orderCount))}
-            delta={period.deltas.basket}
+            value={money(averageCents, primaryCurrency)}
             hint={period.compare}
             accent="chart-4"
-            spark={revenue.map((point) => Math.round(point.caCents / point.commandes / 100))}
-          />
-          <StatCard
-            label="Taux de conversion"
-            value={share(period.conversion, 1)}
-            delta={period.deltas.conversion}
-            hint={period.compare}
-            accent="chart-3"
-            spark={conversionSeries(revenue.length, period.conversion)}
+            spark={overview.series.map((point) =>
+              point.commandes ? Math.round(point.caCents / point.commandes / 100) : 0,
+            )}
           />
         </div>
+        {/* Les régimes de taxe ne se mélangent jamais dans un même total : la
+            France affiche TTC, le Canada hors taxe — un chiffre fusionné
+            n'aurait pas de sens. Le reste s'affiche à part, sans somme. */}
+        {overview.otherRegimes.length > 0 ? (
+          <p className="mt-3 text-xs text-ink-500">
+            Autres régimes non additionnés :{' '}
+            {overview.otherRegimes
+              .map((regime) => `${money(regime.totalCents, regime.currencyCode)} (${regime.regime}, ${regime.currencyCode})`)
+              .join(', ')}
+          </p>
+        ) : null}
       </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <Card className="min-w-0 xl:col-span-2">
           <CardHeader
             title="Chiffre d’affaires"
-            description={`${period.label}, ${period.grain}, toutes devises converties en euros`}
+            description={`${period.label}, jour par jour, en ${primaryCurrency}`}
             action={
               <Badge tone="brand">
                 <Dot />
@@ -175,7 +174,7 @@ export default async function DashboardPage({ searchParams }: PageProps<'/tablea
               </Badge>
             }
           />
-          <RevenueChart data={revenue} />
+          <RevenueChart data={overview.series} />
         </Card>
 
         <Card>
@@ -234,12 +233,12 @@ export default async function DashboardPage({ searchParams }: PageProps<'/tablea
               </Link>
             }
           />
-          <TopProducts products={products} totalCents={caCents} />
+          <TopProducts products={overview.topProducts} totalCents={primaryTotalCents} />
         </Card>
 
         <Card className="min-w-0">
           <CardHeader title="Carnet de commandes" description="Où en sont les commandes" />
-          <StatusBreakdown slices={statuses} />
+          <StatusBreakdown slices={overview.byStatus} caption={`commandes sur les ${period.days} derniers jours`} />
         </Card>
       </div>
 
@@ -306,7 +305,7 @@ export default async function DashboardPage({ searchParams }: PageProps<'/tablea
                     {shortDate(order.placedAt)}
                   </td>
                   <td className="px-5 py-3.5 text-right font-mono font-medium text-ink-900">
-                    {money(order.totalCents)}
+                    {money(order.totalCents, order.currencyCode)}
                   </td>
                 </tr>
               ))}

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Boxes, ImageOff } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Badge, Dot } from '@/components/ui/badge';
@@ -8,20 +8,16 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { DefinitionList } from '@/components/ui/definition-list';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { money, number, untilDay } from '@/lib/format';
-import {
-  PRODUCT_STATUSES,
-  expiringLots,
-  productBySku,
-  stockLevel,
-  stockLineBySku,
-  variantsOf,
-} from '@/lib/demo';
+import { PRODUCT_STATUSES, getProductBySku } from '@/lib/data/products';
+import { expiringLotsForSkus } from '@/lib/data/stock';
+import { getSession } from '@/lib/current-session';
 
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: PageProps<'/produits/[sku]'>) {
   const { sku } = await params;
-  const product = productBySku(decodeURIComponent(sku));
+  const session = await getSession();
+  const product = session ? await getProductBySku(session, decodeURIComponent(sku)) : null;
   return { title: `${product?.name ?? 'Produit introuvable'} — Comptoir` };
 }
 
@@ -31,17 +27,28 @@ const LEVELS = {
   ok: { label: 'Suffisant', tone: 'success' as const },
 };
 
+function stockLevel(onHand: number, reserved: number, threshold: number): keyof typeof LEVELS {
+  const available = onHand - reserved;
+  if (available <= 0) return 'out';
+  return available <= threshold ? 'low' : 'ok';
+}
+
 export default async function ProductPage({ params }: PageProps<'/produits/[sku]'>) {
+  const session = await getSession();
+  if (!session) redirect('/connexion');
+
   const { sku } = await params;
-  const product = productBySku(decodeURIComponent(sku));
+  const product = await getProductBySku(session, decodeURIComponent(sku));
 
   if (!product) notFound();
 
   const now = new Date();
-  const line = stockLineBySku(product.sku);
-  const variants = variantsOf(product);
-  const lots = expiringLots(now).filter((lot) => lot.sku === product.sku);
+  const variants = product.variants;
+  const lots = await expiringLotsForSkus(session, variants.map((variant) => variant.sku));
   const status = PRODUCT_STATUSES[product.status];
+  const totalReserved = variants.reduce((sum, v) => sum + v.reserved, 0);
+  const totalThreshold = variants.reduce((sum, v) => sum + v.threshold, 0);
+  const level = stockLevel(product.onHand, totalReserved, totalThreshold);
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -105,13 +112,13 @@ export default async function ProductPage({ params }: PageProps<'/produits/[sku]
                   <NumCell>
                     {number(variant.stepQuantity)}{' '}
                     <span className="font-sans text-xs font-normal text-ink-500">
-                      {product.unit}
+                      {variant.unit}
                     </span>
                   </NumCell>
                   <NumCell>
                     {number(variant.onHand)}{' '}
                     <span className="font-sans text-xs font-normal text-ink-500">
-                      {product.unit}
+                      {variant.unit}
                     </span>
                   </NumCell>
                   <NumCell>{money(variant.priceCents)}</NumCell>
@@ -175,7 +182,7 @@ export default async function ProductPage({ params }: PageProps<'/produits/[sku]
                     {/* eslint-disable-next-line @next/next/no-img-element -- cohérent avec le reste du back-office, sans `next/image` nulle part */}
                     <img
                       src={image.url}
-                      alt={image.alt}
+                      alt=""
                       className="aspect-square w-full rounded-control object-cover ring-1 ring-ink-200 ring-inset"
                     />
                     {index === 0 ? (
@@ -218,9 +225,8 @@ export default async function ProductPage({ params }: PageProps<'/produits/[sku]
                   numeric: true,
                 },
                 {
-                  term: 'Taux de taxe (France)',
-                  value: product.category === 'Alimentaire' ? '5,5 %' : '20 %',
-                  numeric: true,
+                  term: 'Régime de taxe',
+                  value: product.taxClassName ?? <span className="text-ink-300">—</span>,
                 },
               ]}
             />
@@ -232,14 +238,15 @@ export default async function ProductPage({ params }: PageProps<'/produits/[sku]
             ) : null}
           </Card>
 
-          {line ? (
+          {variants.length > 0 ? (
             <Card className="min-w-0">
               <CardHeader
                 title="Stock"
+                description={variants.length > 1 ? 'Cumul de toutes les déclinaisons' : undefined}
                 action={
-                  <Badge tone={LEVELS[stockLevel(line)].tone}>
+                  <Badge tone={LEVELS[level].tone}>
                     <Dot />
-                    {LEVELS[stockLevel(line)].label}
+                    {LEVELS[level].label}
                   </Badge>
                 }
               />
@@ -247,20 +254,24 @@ export default async function ProductPage({ params }: PageProps<'/produits/[sku]
                 items={[
                   {
                     term: 'Physique',
-                    value: `${number(line.onHand)} ${line.unit}`,
+                    value: `${number(product.onHand)} ${product.unit}`,
                     numeric: true,
                   },
                   {
                     term: 'Réservé par des commandes',
-                    value: `${number(line.reserved)} ${line.unit}`,
+                    value: `${number(totalReserved)} ${product.unit}`,
                     numeric: true,
                   },
                   {
                     term: 'Disponible à la vente',
-                    value: `${number(line.onHand - line.reserved)} ${line.unit}`,
+                    value: `${number(product.onHand - totalReserved)} ${product.unit}`,
                     numeric: true,
                   },
-                  { term: 'Seuil d’alerte', value: `${number(line.threshold)} ${line.unit}`, numeric: true },
+                  {
+                    term: 'Seuil d’alerte',
+                    value: `${number(totalThreshold)} ${product.unit}`,
+                    numeric: true,
+                  },
                 ]}
               />
               <p className="border-t border-ink-200/70 px-5 py-3 text-xs text-ink-500">

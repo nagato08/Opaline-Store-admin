@@ -1,9 +1,9 @@
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { notifications } from '@/lib/demo/notifications';
-import { SESSION_COOKIE, type SessionUser, openSession } from '@/lib/session';
+import { getSession } from '@/lib/current-session';
+import type { SessionUser } from '@/lib/session';
 
 /** Libellés des rôles, tels qu'on les nomme dans la boutique. */
 const ROLE_LABELS: Record<string, string> = {
@@ -31,8 +31,7 @@ function toAccount(user: SessionUser) {
 }
 
 export default async function AppLayout({ children }: LayoutProps<'/'>) {
-  const store = await cookies();
-  const session = await openSession(store.get(SESSION_COOKIE)?.value);
+  const session = await getSession();
 
   // Le middleware a déjà redirigé, mais le rendu ne doit pas en dépendre :
   // une route qui échapperait au `matcher` afficherait sinon la coquille du
