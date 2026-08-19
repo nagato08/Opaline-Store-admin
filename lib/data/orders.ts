@@ -142,7 +142,11 @@ export type AdminOrder = {
   status: OrderStatusKey;
   paymentLabel: string;
   shippingLabel: string;
+  subtotalCents: number;
+  discountCents: number;
   shippingCents: number;
+  taxCents: number;
+  ecoTaxCents: number;
   currencyCode: string;
   pricesIncludeTax: boolean;
   lines: OrderLine[];
@@ -187,7 +191,11 @@ function toOrder(order: ApiOrder): AdminOrder {
     status: deriveStatusKey(order),
     paymentLabel: PAYMENT_LABELS[order.paymentStatus],
     shippingLabel: shippingLabel(order),
+    subtotalCents: order.subtotalCents,
+    discountCents: order.discountCents,
     shippingCents: order.shippingCents,
+    taxCents: order.taxCents,
+    ecoTaxCents: order.ecoTaxCents,
     currencyCode: order.currencyCode,
     pricesIncludeTax: order.pricesIncludeTax,
     lines: order.items.map((item) => ({

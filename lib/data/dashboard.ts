@@ -104,3 +104,21 @@ export async function getOverview(session: SessionData, days: number): Promise<O
     })),
   };
 }
+
+type ApiBreakdowns = {
+  byCategory: Array<{ name: string; totalCents: number }>;
+  byCountry: Array<{ countryCode: string; currencyCode: string; totalCents: number; orderCount: number }>;
+  byCarrier: Array<{ name: string; orderCount: number }>;
+};
+
+export type Breakdowns = ApiBreakdowns;
+
+/**
+ * Trois angles pour l'écran « Statistiques », chacun avec sa limite assumée :
+ * la catégorie est restreinte à l'euro (pas de mélange de devises), le pays
+ * garde sa devise à côté (pas de somme entre régimes), le transporteur ne
+ * compte que les commandes déjà expédiées.
+ */
+export async function getBreakdowns(session: SessionData, days: number): Promise<Breakdowns> {
+  return apiFetch<ApiBreakdowns>(session, `/admin/dashboard/breakdowns?days=${days}`);
+}

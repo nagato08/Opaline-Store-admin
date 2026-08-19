@@ -1,18 +1,9 @@
 import { csvMoney, csvNumber, csvResponse, stamped, toCsv } from '@/lib/csv';
-import {
-  ORDER_STATUSES,
-  PRODUCT_STATUSES,
-  customerByEmail,
-  customers,
-  lotByNumber,
-  orderByNumber,
-  orderTotals,
-  orders,
-  ordersOf,
-  products,
-  stockLevel,
-  stockLines,
-} from '@/lib/demo';
+import { getSession } from '@/lib/current-session';
+import { ORDER_STATUSES, getOrderDetail, listOrders, listOrdersByLot, toStatusKey } from '@/lib/data/orders';
+import { PRODUCT_STATUSES, listProducts, toProductStatus } from '@/lib/data/products';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
+import { listStockLines, lotByNumber } from '@/lib/data/stock';
 
 /**
  * Exports CSV du back-office.
@@ -26,8 +17,19 @@ import {
  * « Exporter » qui renvoie toujours le catalogue entier alors qu'on regarde
  * les ruptures oblige à refaire le tri dans le tableur, donc à ne plus s'en
  * servir.
+ *
+ * L'export « clients » en masse se limite aux champs de la liste (nom,
+ * courriel, activité) : l'adresse et les consentements exigeraient un aller-
+ * retour par client, coûteux sur plusieurs milliers de lignes. L'export
+ * « client » individuel — la portabilité RGPD — reste complet : une seule
+ * personne, un seul aller-retour.
  */
 export async function GET(request: Request, context: RouteContext<'/api/export/[...cible]'>) {
+  const session = await getSession();
+  // `redirect()` de next/navigation ne fonctionne que dans le rendu de page :
+  // un handler de route doit renvoyer lui-même une réponse de redirection.
+  if (!session) return Response.redirect(new URL('/connexion', request.url));
+
   const { cible } = await context.params;
   const url = new URL(request.url);
   const now = new Date();
@@ -35,83 +37,56 @@ export async function GET(request: Request, context: RouteContext<'/api/export/[
 
   switch (jeu) {
     case 'commandes': {
-      const status = url.searchParams.get('statut');
-      const query = (url.searchParams.get('q') ?? '').trim().toLocaleLowerCase('fr');
-      const key = (Object.keys(ORDER_STATUSES) as Array<keyof typeof ORDER_STATUSES>).find(
-        (candidate) => ORDER_STATUSES[candidate].slug === status,
-      );
+      const status = toStatusKey(url.searchParams.get('statut') ?? undefined);
+      const query = url.searchParams.get('q') ?? undefined;
 
-      const rows = orders(now)
-        .filter((order) => (key ? order.status === key : true))
-        .filter((order) =>
-          query
-            ? `${order.number} ${order.customer} ${order.email}`
-                .toLocaleLowerCase('fr')
-                .includes(query)
-            : true,
-        )
-        .map((order) => {
-          const totals = orderTotals(order);
+      const { orders } = await listOrders(session, { status, search: query });
 
-          return [
-            order.number,
-            order.placedAt,
-            order.customer,
-            order.email,
-            order.country,
-            ORDER_STATUSES[order.status].label,
-            order.payment,
-            order.shipping,
-            order.lines.length,
-            csvMoney(totals.subtotalCents),
-            csvMoney(totals.discountCents),
-            csvMoney(totals.taxableCents),
-            csvMoney(totals.taxCents),
-            csvMoney(totals.shippingCents),
-            csvMoney(totals.totalCents),
-            /* Le régime d'affichage voyage avec la ligne : sans lui, un total
-               canadien hors taxe s'additionne à un total français TTC dans le
-               tableur, et la somme ne veut rien dire. */
-            order.country === 'FR' ? 'TTC' : 'HT',
-          ];
-        });
+      const rows = orders.map((order) => [
+        order.number,
+        order.placedAt,
+        order.customer,
+        order.email,
+        order.currencyCode,
+        ORDER_STATUSES[order.status].label,
+        order.paymentLabel,
+        order.shippingLabel,
+        order.itemCount,
+        csvMoney(order.subtotalCents),
+        csvMoney(order.discountCents),
+        csvMoney(order.taxCents),
+        csvMoney(order.ecoTaxCents),
+        csvMoney(order.shippingCents),
+        csvMoney(order.totalCents),
+        order.pricesIncludeTax ? 'TTC' : 'HT',
+      ]);
 
       return csvResponse(
         stamped('commandes', now),
         toCsv(
-          ['Numéro', 'Date', 'Client', 'Courriel', 'Pays', 'Statut', 'Paiement', 'Livraison', 'Lignes', 'Sous-total', 'Remises', 'Base taxable', 'Taxe', 'Livraison (montant)', 'Total', 'Régime'],
+          ['Numéro', 'Date', 'Client', 'Courriel', 'Devise', 'Statut', 'Paiement', 'Livraison', 'Lignes', 'Sous-total', 'Remises', 'Taxe', 'Éco-participation', 'Livraison (montant)', 'Total', 'Régime'],
           rows,
         ),
       );
     }
 
     case 'produits': {
-      const state = url.searchParams.get('etat');
-      const query = (url.searchParams.get('q') ?? '').trim().toLocaleLowerCase('fr');
-      const key = (Object.keys(PRODUCT_STATUSES) as Array<keyof typeof PRODUCT_STATUSES>).find(
-        (candidate) => PRODUCT_STATUSES[candidate].slug === state,
-      );
+      const status = toProductStatus(url.searchParams.get('etat') ?? undefined);
+      const query = url.searchParams.get('q') ?? undefined;
 
-      const rows = products()
-        .filter((product) => (key ? product.status === key : true))
-        .filter((product) =>
-          query
-            ? `${product.name} ${product.sku} ${product.category}`
-                .toLocaleLowerCase('fr')
-                .includes(query)
-            : true,
-        )
-        .map((product) => [
-          product.sku,
-          product.name,
-          product.category,
-          PRODUCT_STATUSES[product.status].label,
-          csvMoney(product.priceCents),
-          csvMoney(product.ecoTaxCents),
-          product.variants,
-          csvNumber(product.onHand),
-          product.unit,
-        ]);
+      const { products } = await listProducts(session, { status, search: query });
+
+      const rows = products.map((product) => [
+        product.sku,
+        product.name,
+        product.category,
+        PRODUCT_STATUSES[product.status].label,
+        csvMoney(product.priceCents),
+        csvMoney(product.ecoTaxCents),
+        product.variantCount,
+        csvNumber(product.onHand),
+        product.unit,
+      ]);
 
       return csvResponse(
         stamped('produits', now),
@@ -123,76 +98,66 @@ export async function GET(request: Request, context: RouteContext<'/api/export/[
     }
 
     case 'clients': {
-      const rows = customers().map((customer) => [
+      const { customers } = await listCustomers(session, {});
+
+      const rows = customers.map((customer) => [
         customer.name,
         customer.email,
-        customer.country,
         customer.kind === 'account' ? 'Avec compte' : 'Sans compte',
-        customer.orders,
+        customer.orderCount,
         csvMoney(customer.spentCents),
-        customer.address.line1,
-        customer.address.postalCode,
-        customer.address.city,
-        customer.consents.newsletter ? 'oui' : 'non',
-        customer.consents.profiling ? 'oui' : 'non',
-        customer.loyaltyPoints,
+        customer.lastOrderAt ?? '',
       ]);
 
       return csvResponse(
         stamped('clients', now),
-        toCsv(
-          ['Nom', 'Courriel', 'Pays', 'Type', 'Commandes', 'Total dépensé', 'Adresse', 'Code postal', 'Ville', 'Lettre d’information', 'Personnalisation', 'Points'],
-          rows,
-        ),
+        toCsv(['Nom', 'Courriel', 'Type', 'Commandes', 'Total dépensé', 'Dernière commande'], rows),
       );
     }
 
     case 'stock': {
-      const rows = stockLines().map((line) => [
+      const rows = (await listStockLines(session, {})).map((line) => [
         line.sku,
         line.product,
-        line.variant,
-        line.category,
+        line.locationName,
         csvNumber(line.onHand),
         csvNumber(line.reserved),
-        csvNumber(line.onHand - line.reserved),
+        csvNumber(line.available),
         csvNumber(line.threshold),
         line.unit,
-        line.lots,
-        { out: 'Rupture', low: 'Sous le seuil', ok: 'Suffisant' }[stockLevel(line)],
+        line.openLots,
+        { out: 'Rupture', low: 'Sous le seuil', ok: 'Suffisant' }[line.level],
       ]);
 
       return csvResponse(
         stamped('stock', now),
         toCsv(
-          ['SKU', 'Produit', 'Déclinaison', 'Catégorie', 'Physique', 'Réservé', 'Disponible', 'Seuil', 'Unité', 'Lots ouverts', 'Niveau'],
+          ['SKU', 'Produit', 'Entrepôt', 'Physique', 'Réservé', 'Disponible', 'Seuil', 'Unité', 'Lots ouverts', 'Niveau'],
           rows,
         ),
       );
     }
 
     case 'commande': {
-      const order = reference ? orderByNumber(reference, now) : undefined;
-      if (!order) return new Response('Commande introuvable', { status: 404 });
+      const detail = reference ? await getOrderDetail(session, reference) : null;
+      if (!detail) return new Response('Commande introuvable', { status: 404 });
 
-      const rows = order.lines.map((line) => [
-        order.number,
+      const rows = detail.order.lines.map((line) => [
+        detail.order.number,
         line.sku,
         line.label,
         csvNumber(line.quantity),
-        line.unit,
         csvMoney(line.unitPriceCents),
-        csvNumber(line.taxRate),
         csvMoney(line.discountCents),
-        csvMoney(Math.round(line.ecoTaxCents * line.quantity)),
-        csvMoney(Math.round(line.unitPriceCents * line.quantity) - line.discountCents),
+        csvMoney(line.ecoTaxCents),
+        csvMoney(line.totalCents),
         line.lotNumbers?.join(' ') ?? '',
       ]);
 
       return csvResponse(
-        `commande-${order.number}.csv`,
+        `commande-${detail.order.number}.csv`,
         toCsv(
-          ['Commande', 'SKU', 'Article', 'Quantité', 'Unité', 'Prix unitaire', 'Taux de taxe', 'Remise', 'Éco-participation', 'Total ligne', 'Lots'],
+          ['Commande', 'SKU', 'Article', 'Quantité', 'Prix unitaire', 'Remise', 'Éco-participation', 'Total ligne', 'Lots'],
           rows,
         ),
       );
@@ -202,23 +167,25 @@ export async function GET(request: Request, context: RouteContext<'/api/export/[
       /* Export des données d'une personne : c'est l'article 20 du RGPD, la
          portabilité. Le fichier doit donc contenir ce qui la concerne, pas un
          résumé commercial. */
-      const customer = reference ? customerByEmail(reference) : undefined;
+      const customer = reference ? await getCustomer(session, reference) : null;
       if (!customer) return new Response('Client introuvable', { status: 404 });
-
-      const history = ordersOf(customer.email, now);
 
       const rows: Array<Array<string | number>> = [
         ['Identité', 'Nom', customer.name],
         ['Identité', 'Courriel', customer.email],
         ['Identité', 'Type de compte', customer.kind === 'account' ? 'Avec compte' : 'Sans compte'],
-        ['Adresse', 'Rue', customer.address.line1],
-        ['Adresse', 'Code postal', customer.address.postalCode],
-        ['Adresse', 'Ville', customer.address.city],
-        ['Adresse', 'Pays', customer.address.country],
+        ...(customer.address
+          ? [
+              ['Adresse', 'Rue', customer.address.line1],
+              ['Adresse', 'Code postal', customer.address.postalCode],
+              ['Adresse', 'Ville', customer.address.city],
+              ['Adresse', 'Pays', customer.address.countryCode],
+            ]
+          : []),
         ['Consentement', 'Lettre d’information', customer.consents.newsletter ? 'accordé' : 'refusé'],
-        ['Consentement', 'Personnalisation des offres', customer.consents.profiling ? 'accordé' : 'refusé'],
+        ['Consentement', 'Cookies marketing', customer.consents.marketingCookies ? 'accordé' : 'refusé'],
         ['Fidélité', 'Points accumulés', customer.loyaltyPoints],
-        ...history.map((order) => [
+        ...customer.orders.map((order) => [
           'Commande',
           order.number,
           `${order.placedAt} — ${ORDER_STATUSES[order.status].label} — ${csvMoney(order.totalCents)}`,
@@ -232,22 +199,22 @@ export async function GET(request: Request, context: RouteContext<'/api/export/[
     }
 
     case 'lot': {
-      const lot = reference ? lotByNumber(reference, now) : undefined;
+      const lot = reference ? await lotByNumber(session, reference) : null;
       if (!lot) return new Response('Lot introuvable', { status: 404 });
 
       /* Liste de rappel : les destinataires du lot, et rien d'autre. C'est le
          fichier qu'on ouvre le jour où un produit doit être retiré. */
-      const rows = orders(now)
-        .filter((order) => order.lines.some((line) => line.lotNumbers?.includes(lot.lotNumber)))
-        .map((order) => [
-          lot.lotNumber,
-          lot.product,
-          order.number,
-          order.placedAt,
-          order.customer,
-          order.email,
-          ORDER_STATUSES[order.status].label,
-        ]);
+      const affected = await listOrdersByLot(session, lot.lotNumber);
+
+      const rows = affected.map((order) => [
+        lot.lotNumber,
+        lot.product,
+        order.number,
+        order.placedAt,
+        order.customer,
+        order.email,
+        ORDER_STATUSES[order.status].label,
+      ]);
 
       return csvResponse(
         `rappel-lot-${lot.lotNumber}.csv`,
