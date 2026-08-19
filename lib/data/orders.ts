@@ -356,3 +356,37 @@ export async function getOrderDetail(
     shippingAddress: detail.addresses?.find((address) => address.type === 'SHIPPING') ?? null,
   };
 }
+
+/**
+ * Vente par téléphone ou au comptoir.
+ *
+ * Emprunte le même chemin qu'une commande en ligne côté API — panier invité
+ * reconstitué en coulisses, mode de livraison choisi automatiquement (le
+ * moins cher éligible), paiement `MANUAL`. `idempotencyKey` doit rester
+ * stable sur les nouvelles tentatives d'un même envoi : un double-clic ne
+ * doit pas créer deux commandes.
+ */
+export async function createManualOrder(
+  session: SessionData,
+  idempotencyKey: string,
+  input: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    line1: string;
+    postalCode: string;
+    city: string;
+    countryCode: string;
+    sku: string;
+    quantity: number;
+    customerNote?: string;
+  },
+): Promise<{ number: string }> {
+  const result = await apiFetch<{ order: { number: string } }>(session, '/admin/checkout/manual-order', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(input),
+  });
+
+  return { number: result.order.number };
+}
