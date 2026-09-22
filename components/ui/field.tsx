@@ -80,6 +80,58 @@ export function Field({
   );
 }
 
+/**
+ * Case à cocher.
+ *
+ * `accent-color` plutôt qu'une case redessinée : la case native garde son
+ * comportement clavier, son état indéterminé et le rendu que l'utilisateur
+ * connaît de son système, et elle reste visible en mode contraste élevé — ce
+ * qu'un `<span>` habillé perd systématiquement.
+ *
+ * Le libellé entier est cliquable, pas seulement la case de 16 px : c'est une
+ * cible de 16 px de haut sinon, très en dessous du confort tactile.
+ *
+ * Pas de `required` possible ici : une case obligatoire n'aurait de sens que
+ * pour un consentement, et le back-office n'en collecte aucun.
+ */
+export function Checkbox({
+  name,
+  label,
+  hint,
+  defaultChecked,
+}: {
+  name: string;
+  label: string;
+  hint?: string;
+  defaultChecked?: boolean;
+}) {
+  const id = useId();
+  const hintId = hint ? `${id}-aide` : undefined;
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-start gap-2.5">
+        <input
+          id={id}
+          name={name}
+          type="checkbox"
+          defaultChecked={defaultChecked}
+          aria-describedby={hintId}
+          className="mt-0.5 size-4 shrink-0 accent-cobalt-500"
+        />
+        <label htmlFor={id} className="text-sm font-medium text-ink-800">
+          {label}
+        </label>
+      </div>
+      {hint ? (
+        <p id={hintId} className="mt-1 ml-[26px] text-xs text-ink-500">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** Zone de saisie longue, même habillage que les champs d'une ligne. */
 export const textareaClass =
   'min-h-28 w-full rounded-control bg-surface px-3 py-2.5 text-sm text-ink-900 ring-1 ring-ink-200 ring-inset placeholder:text-ink-400 transition-colors duration-150 hover:ring-ink-300';

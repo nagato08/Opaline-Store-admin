@@ -42,6 +42,30 @@ export function required(data: FormData, field: string): string {
 }
 
 /**
+ * Case à cocher.
+ *
+ * Un `<input type="checkbox">` décoché n'apparaît **pas** dans le `FormData` :
+ * lire `data.get(field) === 'false'` ne marcherait jamais, il faut tester
+ * l'absence. C'est aussi pourquoi `readValues` ne peut pas restituer une case
+ * décochée — le formulaire porte donc ses propres valeurs par défaut.
+ */
+export function checked(data: FormData, field: string): boolean {
+  return data.get(field) !== null;
+}
+
+/**
+ * Identifiant technique saisi : conservé tel quel, ou absent.
+ *
+ * Renvoyer `undefined` plutôt que `''` n'est pas cosmétique — l'API refuse un
+ * `parentId` vide alors qu'elle accepte son absence, et un slug vide
+ * produirait une URL de catégorie tronquée au lieu d'être déduit du nom.
+ */
+export function optional(data: FormData, field: string): string | undefined {
+  const value = (data.get(field) as string | null)?.trim();
+  return value ? value : undefined;
+}
+
+/**
  * Conversion d'un montant saisi en centimes entiers.
  *
  * `Math.round` et non une troncature : `19.99 * 100` vaut `1998.9999…` en

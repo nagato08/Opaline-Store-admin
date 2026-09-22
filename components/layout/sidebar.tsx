@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   BarChart3,
   Boxes,
+  FolderTree,
   LayoutDashboard,
   LifeBuoy,
   Megaphone,
@@ -12,6 +13,7 @@ import {
   Settings,
   ShoppingBag,
   Tag,
+  Tags,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -36,6 +38,12 @@ const groups = [
     label: 'Catalogue',
     items: [
       { href: '/produits', label: 'Produits', icon: Package },
+      // Les catégories précèdent les produits dans l'ordre des gestes — on ne
+      // peut pas créer un produit sans rayon — mais les produits restent en
+      // tête : c'est l'écran ouvert tous les jours, la taxonomie une fois par
+      // trimestre.
+      { href: '/catalogue/categories', label: 'Catégories', icon: FolderTree },
+      { href: '/catalogue/marques', label: 'Marques', icon: Tags },
       { href: '/stock', label: 'Stock', icon: Boxes },
       { href: '/promotions', label: 'Promotions', icon: Tag },
     ],

@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import Link from 'next/link';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Card, CardHeader } from '@/components/ui/card';
 import { Field, textareaClass, useFieldValues } from '@/components/ui/field';
@@ -57,19 +58,41 @@ export function ProductForm({ categories }: { categories: Category[] }) {
               )}
             </Field>
 
-            <Field label="Catégorie" required error={state.errors?.categoryId}>
-              {(props) => (
-                <select {...props} {...field('categoryId')}>
-                  <option value="" disabled>
-                    Choisir…
-                  </option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
+            {/* Un sélecteur vide sur un champ obligatoire est une impasse
+                muette : sans cette bifurcation, l'utilisateur voit « Choisir… »
+                comme seule option et n'a aucun moyen de deviner qu'il doit
+                d'abord créer un rayon. */}
+            <Field
+              label="Catégorie"
+              required
+              error={state.errors?.categoryId}
+              hint={categories.length === 0 ? undefined : 'Le rayon qui porte le produit'}
+            >
+              {(props) =>
+                categories.length === 0 ? (
+                  <p
+                    id={props['aria-describedby']}
+                    className="rounded-control bg-warning-soft px-3 py-2.5 text-sm text-warning ring-1 ring-warning/20 ring-inset"
+                  >
+                    Aucune catégorie n’existe encore.{' '}
+                    <Link href="/catalogue/categories" className="font-medium underline">
+                      Créez un premier rayon
+                    </Link>{' '}
+                    puis revenez : un produit ne peut pas être enregistré sans.
+                  </p>
+                ) : (
+                  <select {...props} {...field('categoryId')}>
+                    <option value="" disabled>
+                      Choisir…
                     </option>
-                  ))}
-                </select>
-              )}
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                )
+              }
             </Field>
 
             <div className="sm:col-span-2">
