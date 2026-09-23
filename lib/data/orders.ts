@@ -67,6 +67,7 @@ type ApiOrderItem = {
   ecoTaxCents: number;
   totalCents: number;
   lotNumbers: string[];
+  fulfilledQuantity: string;
 };
 
 type ApiAddress = {
@@ -131,6 +132,8 @@ export type OrderLine = {
   ecoTaxCents: number;
   totalCents: number;
   lotNumbers: string[];
+  /** Déjà parti en colis. La différence avec `quantity` est le reste à expédier. */
+  fulfilledQuantity: number;
 };
 
 export type AdminOrder = {
@@ -153,6 +156,15 @@ export type AdminOrder = {
   itemCount: number;
   totalCents: number;
   placedAt: string;
+  /* Les trois statuts bruts de l'API, en plus du statut de lecture.
+     `status` ci-dessus est une synthèse destinée à l'affichage ; décider
+     quelles actions sont possibles demande les trois axes séparés —
+     une commande peut être payée et non expédiée, ou l'inverse. */
+  apiStatus: ApiOrderStatus;
+  paymentStatus: ApiPaymentStatus;
+  fulfillmentStatus: ApiFulfillmentStatus;
+  paidCents: number;
+  refundedCents: number;
 };
 
 export type OrderTotals = {
@@ -210,10 +222,16 @@ function toOrder(order: ApiOrder): AdminOrder {
       ecoTaxCents: item.ecoTaxCents,
       totalCents: item.totalCents,
       lotNumbers: item.lotNumbers,
+      fulfilledQuantity: Number(item.fulfilledQuantity ?? 0),
     })),
     itemCount: order.items.length,
     totalCents: order.totalCents,
     placedAt: order.createdAt,
+    apiStatus: order.status,
+    paymentStatus: order.paymentStatus,
+    fulfillmentStatus: order.fulfillmentStatus,
+    paidCents: order.paidCents,
+    refundedCents: order.refundedCents,
   };
 }
 
@@ -257,12 +275,18 @@ export function orderTimeline(order: ApiOrder): TimelineEntry[] {
     done: true,
   };
 
-  const transitions: TimelineEntry[] = history.map((entry) => ({
-    label: STATUS_STEP_LABELS[entry.toStatus],
-    detail: entry.reason ?? '—',
-    at: entry.createdAt,
-    done: true,
-  }));
+  /* L'API consigne l'entrée en `PENDING` au moment de la création : la
+     reprendre ici afficherait « Commande reçue » deux fois de suite, ce qui
+     donne l'impression d'un doublon de commande plutôt que d'un doublon
+     d'affichage. */
+  const transitions: TimelineEntry[] = history
+    .filter((entry) => entry.toStatus !== 'PENDING')
+    .map((entry) => ({
+      label: STATUS_STEP_LABELS[entry.toStatus],
+      detail: entry.reason ?? '—',
+      at: entry.createdAt,
+      done: true,
+    }));
 
   const shipment = order.shipments?.[0];
   const shipmentEntries: TimelineEntry[] = [];
@@ -389,4 +413,117 @@ export async function createManualOrder(
   });
 
   return { number: result.order.number };
+}
+
+// --- Actions sur une commande ------------------------------------------------
+
+/**
+ * Transitions autorisées, copiées sur `ALLOWED_TRANSITIONS` de l'API.
+ *
+ * Ce tableau est un **miroir**, pas une source : l'API refuse de toute façon
+ * une transition illégale. Il sert à ne pas proposer un bouton qui échouera,
+ * ce qui est moins pénible qu'un message d'erreur après coup.
+ *
+ * Sans machine à états, une commande peut passer « expédiée » puis « en
+ * attente », ce qui casse la comptabilité autant que la logistique.
+ */
+export const ALLOWED_TRANSITIONS: Record<ApiOrderStatus, ApiOrderStatus[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PROCESSING', 'CANCELLED'],
+  PROCESSING: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+export const API_STATUS_LABELS: Record<ApiOrderStatus, string> = {
+  PENDING: 'En attente',
+  CONFIRMED: 'Confirmée',
+  PROCESSING: 'En préparation',
+  COMPLETED: 'Terminée',
+  CANCELLED: 'Annulée',
+};
+
+/**
+ * Encaissement manuel.
+ *
+ * Seul mode de paiement branché : virement ou règlement à la livraison. C'est
+ * le commerçant qui constate l'encaissement, aucun prestataire ne le notifie.
+ */
+export async function markOrderPaid(session: SessionData, orderId: string): Promise<void> {
+  await apiFetch(session, `/admin/orders/${orderId}/mark-paid`, { method: 'POST' });
+}
+
+export async function transitionOrder(
+  session: SessionData,
+  orderId: string,
+  status: ApiOrderStatus,
+  reason?: string,
+): Promise<void> {
+  await apiFetch(session, `/admin/orders/${orderId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
+  });
+}
+
+/** Remboursement partiel ou total. Le montant est en centimes, comme partout. */
+export async function refundOrder(
+  session: SessionData,
+  orderId: string,
+  amountCents: number,
+  reason?: string,
+): Promise<void> {
+  await apiFetch(session, `/admin/orders/${orderId}/refund`, {
+    method: 'POST',
+    body: JSON.stringify({ amountCents, ...(reason ? { reason } : {}) }),
+  });
+}
+
+/**
+ * Expédition d'un colis.
+ *
+ * Les quantités sont décimales — l'alimentaire se vend au poids — et une
+ * commande peut partir en plusieurs colis : l'API refuse toute quantité
+ * supérieure au reste à expédier de la ligne.
+ */
+export async function shipOrder(
+  session: SessionData,
+  orderId: string,
+  input: {
+    carrierId?: string;
+    trackingNumber?: string;
+    items: Array<{ orderItemId: string; quantity: number }>;
+  },
+): Promise<void> {
+  await apiFetch(session, `/admin/orders/${orderId}/shipments`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(input.carrierId ? { carrierId: input.carrierId } : {}),
+      ...(input.trackingNumber ? { trackingNumber: input.trackingNumber } : {}),
+      items: input.items,
+    }),
+  });
+}
+
+export type Carrier = { id: string; name: string };
+
+/**
+ * Transporteurs disponibles.
+ *
+ * Aucune route ne les liste directement : on les déduit des zones de
+ * livraison, où chaque mode porte le sien. Le dédoublonnage est donc à notre
+ * charge — un même transporteur sert plusieurs zones.
+ */
+export async function listCarriers(session: SessionData): Promise<Carrier[]> {
+  type ApiZone = { methods: Array<{ carrier: { id: string; name: string } | null }> };
+
+  const zones = await apiFetch<ApiZone[]>(session, '/admin/shipping/zones');
+  const carriers = new Map<string, string>();
+
+  for (const zone of zones) {
+    for (const method of zone.methods) {
+      if (method.carrier) carriers.set(method.carrier.id, method.carrier.name);
+    }
+  }
+
+  return [...carriers].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
 }

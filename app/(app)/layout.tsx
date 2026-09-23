@@ -57,14 +57,16 @@ export default async function AppLayout({ children }: LayoutProps<'/'>) {
       {/* Rail fixe à partir de 1024 px : sur un écran large, une navigation
           latérale permanente évite un aller-retour à chaque changement de
           section. En dessous, elle passe en tiroir. */}
-      <aside className="hidden w-64 shrink-0 lg:block">
+      <aside data-no-print className="hidden w-64 shrink-0 lg:block">
         <div className="fixed inset-y-0 w-64">
           <Sidebar />
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar notifications={notifications(new Date())} account={account} />
+        <div data-no-print>
+          <Topbar notifications={notifications(new Date())} account={account} />
+        </div>
         {/* `tabIndex={-1}` : sans lui, le saut d'ancre déplace le défilement
             mais pas le focus, et la tabulation suivante repart de la barre. */}
         <main id="contenu" tabIndex={-1} className="flex-1 px-4 pt-6 pb-16 lg:px-8">

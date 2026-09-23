@@ -8,8 +8,9 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { DefinitionList } from '@/components/ui/definition-list';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { money, number, shortDate } from '@/lib/format';
-import { ORDER_STATUSES, getOrderDetail } from '@/lib/data/orders';
+import { ORDER_STATUSES, getOrderDetail, listCarriers } from '@/lib/data/orders';
 import { getSession } from '@/lib/current-session';
+import { OrderActions } from './order-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,10 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
   if (!session) redirect('/connexion');
 
   const { numero } = await params;
-  const detail = await getOrderDetail(session, decodeURIComponent(numero));
+  const [detail, carriers] = await Promise.all([
+    getOrderDetail(session, decodeURIComponent(numero)),
+    listCarriers(session),
+  ]);
 
   // Un numéro inconnu n'est pas une erreur serveur : c'est une page qui
   // n'existe pas, et elle doit répondre 404 pour ne pas être indexée ni mise
@@ -76,7 +80,12 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
       />
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <div className="min-w-0 xl:col-span-2">
+        <div className="min-w-0 space-y-6 xl:col-span-2">
+          {/* Le traitement précède la lecture : on ouvre une commande pour
+              l'encaisser ou l'expédier, pas pour la relire. Les cartes sans
+              objet à cet instant ne s'affichent pas du tout. */}
+          <OrderActions order={order} carriers={carriers} />
+
           <Card className="min-w-0">
             <CardHeader
               title="Articles"

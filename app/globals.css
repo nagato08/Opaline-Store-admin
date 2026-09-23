@@ -163,3 +163,31 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Impression.
+ *
+ * Un bon de préparation part à l'atelier sur papier : le rail de navigation,
+ * la barre du haut et les boutons n'y ont rien à faire, et ils coûteraient une
+ * demi-page d'aplats noirs. Tout élément marqué `data-no-print` disparaît,
+ * ainsi que le cadre des cartes — l'encre sert au contenu, pas aux bordures. */
+@media print {
+  [data-no-print] {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  /* Les liens portent leur cible en note : une URL invisible sur papier rend
+   * la référence intraçable. */
+  a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 10px;
+    color: #555;
+  }
+}
