@@ -59,14 +59,14 @@ type ApiProductListItem = {
   ecoTaxCents: number;
   translations: ApiTranslation[];
   categories: ApiCategory[];
-  media: { media: { url: string } }[];
+  media: { media: { id: string; url: string } }[];
   variants: ApiVariantListItem[];
   _count: { variants: number };
 };
 
 type ApiProductDetail = Omit<ApiProductListItem, 'variants' | '_count'> & {
   taxClass: { name: string } | null;
-  media: { media: { url: string }; id: string }[];
+  media: { media: { id: string; url: string }; id: string }[];
   variants: ApiVariantDetail[];
 };
 
@@ -85,7 +85,11 @@ function totalOnHand(variants: ApiVariantListItem[]): number {
   );
 }
 
-export type ProductImage = { url: string };
+/**
+ * `id` est celui du **média**, pas celui de la liaison produit-média : c'est
+ * lui que l'API attend dans `mediaIds` pour recomposer la galerie.
+ */
+export type ProductImage = { id: string; url: string };
 
 export type ProductListItem = {
   id: string;
@@ -153,7 +157,7 @@ function toListItem(product: ApiProductListItem): ProductListItem {
     onHand: totalOnHand(product.variants),
     unit: product.variants[0] ? unitOf(product.variants[0]) : 'pièces',
     status: STATUS_MAP[product.status],
-    images: product.media.map((entry) => ({ url: entry.media.url })),
+    images: product.media.map((entry) => ({ id: entry.media.id, url: entry.media.url })),
   };
 }
 
@@ -175,7 +179,7 @@ function toDetail(product: ApiProductDetail): ProductDetail {
     onHand: totalOnHand(product.variants),
     unit: defaultVariant ? unitOf(defaultVariant) : 'pièces',
     status: STATUS_MAP[product.status],
-    images: product.media.map((entry) => ({ url: entry.media.url })),
+    images: product.media.map((entry) => ({ id: entry.media.id, url: entry.media.url })),
     slug: translate(product.translations)?.slug ?? '',
     taxClassName: product.taxClass?.name ?? null,
     defaultVariantId: defaultVariant?.id ?? null,
@@ -250,13 +254,21 @@ export async function getProductBySku(session: SessionData, sku: string): Promis
 export async function updateProduct(
   session: SessionData,
   productId: string,
-  input: { name: string; slug: string; status: ProductStatus; ecoTaxCents: number },
+  input: {
+    name: string;
+    slug: string;
+    status: ProductStatus;
+    ecoTaxCents: number;
+    /** Galerie complète après modification — remplace l'existante, ne s'y ajoute pas. */
+    mediaIds?: string[];
+  },
 ): Promise<void> {
   await apiFetch(session, `/admin/catalog/products/${productId}`, {
     method: 'PATCH',
     body: JSON.stringify({
       status: STATUS_MAP_REVERSE[input.status],
       ecoTaxCents: input.ecoTaxCents,
+      ...(input.mediaIds ? { mediaIds: input.mediaIds } : {}),
       translations: [{ locale: 'FR', name: input.name, slug: input.slug }],
     }),
   });
@@ -296,6 +308,8 @@ export async function createProduct(
     description?: string;
     priceCents: number;
     ecoTaxCents: number;
+    /** Médias déjà téléversés, dans l'ordre — le premier fait la couverture. */
+    mediaIds?: string[];
   },
 ): Promise<{ sku: string }> {
   await apiFetch(session, '/admin/catalog/products', {
@@ -303,6 +317,7 @@ export async function createProduct(
     body: JSON.stringify({
       ecoTaxCents: input.ecoTaxCents,
       categoryIds: [input.categoryId],
+      ...(input.mediaIds && input.mediaIds.length > 0 ? { mediaIds: input.mediaIds } : {}),
       translations: [
         {
           locale: 'FR',

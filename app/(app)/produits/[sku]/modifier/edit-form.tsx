@@ -6,8 +6,9 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { Field, useFieldValues } from '@/components/ui/field';
 import { FormNotice } from '@/components/ui/form-notice';
 import { ImagePicker, type PickedImage } from '@/components/ui/image-picker';
+import { StoredImages } from '@/components/ui/stored-images';
 import { SubmitButton } from '@/components/ui/submit-button';
-import { PRODUCT_STATUSES, type ProductDetail } from '@/lib/data/products';
+import { PRODUCT_STATUSES, type ProductDetail, type ProductImage } from '@/lib/data/products';
 import { IDLE } from '@/lib/form';
 import { updateProduct } from './actions';
 
@@ -22,9 +23,12 @@ export function EditForm({ product }: { product: ProductDetail }) {
     },
     state,
   );
-  const [images, setImages] = useState<PickedImage[]>(() =>
-    product.images.map((image, index) => ({ id: `${product.sku}-${index}`, url: image.url, alt: '' })),
-  );
+  /* Deux listes distinctes, et non une seule : les photos déjà enregistrées
+     n'ont pas de fichier à envoyer, seulement un identifiant à conserver. Les
+     mélanger obligerait à porter un `File` fictif pour les unes ou un
+     identifiant vide pour les autres. */
+  const [kept, setKept] = useState<ProductImage[]>(product.images);
+  const [added, setAdded] = useState<PickedImage[]>([]);
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -47,7 +51,18 @@ export function EditForm({ product }: { product: ProductDetail }) {
         <Card className="min-w-0">
           <CardHeader description="La référence (SKU) ne se modifie pas ici : elle est citée dans les commandes déjà passées, la changer casserait leur historique." title="Identification" />
           <div className="grid gap-5 p-5 sm:grid-cols-2">
-            <ImagePicker label="Photos" images={images} onChange={setImages} />
+            <div className="space-y-4 sm:col-span-2">
+              <StoredImages name="keptMediaIds" images={kept} onChange={setKept} />
+
+              <ImagePicker
+                label={kept.length > 0 ? 'Ajouter des photos' : 'Photos'}
+                name="images"
+                error={state.errors?.images}
+                hint="Les nouvelles photos s’ajoutent à la suite des précédentes."
+                images={added}
+                onChange={setAdded}
+              />
+            </div>
 
             <div className="sm:col-span-2">
               <Field label="Nom du produit" required error={state.errors?.name}>

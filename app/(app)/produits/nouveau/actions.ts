@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { ApiError } from '@/lib/api';
 import { getSession } from '@/lib/current-session';
 import { createProduct as createProductApi } from '@/lib/data/products';
+import { readGallery, uploadGallery } from '@/lib/data/media';
 import { type FormState, readValues, required, toCents } from '@/lib/form';
 
 /**
@@ -39,6 +40,9 @@ export async function createProduct(_previous: FormState, data: FormData): Promi
 
   const description = (data.get('description') as string | null)?.trim() ?? '';
 
+  const gallery = readGallery(data, 'images');
+  if (gallery.error) errors.images = gallery.error;
+
   if (Object.keys(errors).length > 0) {
     return {
       status: 'invalid',
@@ -51,7 +55,27 @@ export async function createProduct(_previous: FormState, data: FormData): Promi
   const session = await getSession();
   if (!session) redirect('/connexion');
 
+  /* Les photos partent **avant** le produit : l'API attend des identifiants de
+     médias déjà enregistrés. L'ordre du tableau devient `ProductMedia.position`,
+     donc la première image est la couverture.
+
+     Conséquence assumée : si la création du produit échoue ensuite, les médias
+     restent dans la médiathèque sans être rattachés. C'est préférable à
+     l'inverse — un produit publié sans photo part en ligne tel quel, alors
+     qu'un média orphelin ne se voit nulle part et se réutilise au prochain
+     essai. */
+  let mediaIds: string[] = [];
+
   try {
+    if (gallery.files.length > 0) {
+      mediaIds = await uploadGallery(
+        session,
+        gallery.files,
+        data.getAll('imagesAlt').map((value) => String(value)),
+        'produits',
+      );
+    }
+
     await createProductApi(session, {
       name,
       sku,
@@ -59,6 +83,7 @@ export async function createProduct(_previous: FormState, data: FormData): Promi
       description: description || undefined,
       priceCents: priceCents as number,
       ecoTaxCents: ecoTaxCents ?? 0,
+      mediaIds,
     });
   } catch (error) {
     const message = error instanceof ApiError ? error.message : 'Erreur inattendue. Réessayez.';

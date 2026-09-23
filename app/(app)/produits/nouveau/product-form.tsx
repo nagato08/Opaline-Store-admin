@@ -29,7 +29,9 @@ export function ProductForm({ categories }: { categories: Category[] }) {
           <div className="grid gap-5 p-5 sm:grid-cols-2">
             <ImagePicker
               label="Photos"
-              hint="La première devient la couverture — c'est elle qui illustre le catalogue et la recherche."
+              name="images"
+              error={state.errors?.images}
+              hint="La première devient la couverture — c’est elle qui illustre le catalogue et la recherche."
               images={images}
               onChange={setImages}
             />

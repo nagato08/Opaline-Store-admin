@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { ApiError } from '@/lib/api';
 import { getSession } from '@/lib/current-session';
 import { STATUS_MAP_REVERSE, updateProduct as updateProductApi, updateVariantPrice, type ProductStatus } from '@/lib/data/products';
+import { readGallery, uploadGallery } from '@/lib/data/media';
 import { type FormState, readValues, required, toCents } from '@/lib/form';
 
 export async function updateProduct(_previous: FormState, data: FormData): Promise<FormState> {
@@ -27,6 +28,9 @@ export async function updateProduct(_previous: FormState, data: FormData): Promi
   const status = required(data, 'status') as ProductStatus;
   if (!status || !(status in STATUS_MAP_REVERSE)) errors.status = 'Choisissez un état.';
 
+  const gallery = readGallery(data, 'images');
+  if (gallery.error) errors.images = gallery.error;
+
   if (Object.keys(errors).length > 0) {
     return { status: 'invalid', message: 'Corrigez les champs signalés avant de continuer.', errors, values };
   }
@@ -38,12 +42,28 @@ export async function updateProduct(_previous: FormState, data: FormData): Promi
   const session = await getSession();
   if (!session) redirect('/connexion');
 
+  /* La galerie est remplacée en bloc, jamais complétée : `mediaIds` décrit
+     l'état final. Les identifiants conservés arrivent dans l'ordre affiché,
+     les nouveaux s'ajoutent à la suite. */
+  const kept = data.getAll('keptMediaIds').map((value) => String(value));
+
   try {
+    const uploaded =
+      gallery.files.length > 0
+        ? await uploadGallery(
+            session,
+            gallery.files,
+            data.getAll('imagesAlt').map((value) => String(value)),
+            'produits',
+          )
+        : [];
+
     await updateProductApi(session, productId, {
       name,
       slug,
       status,
       ecoTaxCents: ecoTaxCents ?? 0,
+      mediaIds: [...kept, ...uploaded],
     });
 
     if (variantId) {
