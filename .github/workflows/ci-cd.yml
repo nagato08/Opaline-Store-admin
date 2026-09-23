@@ -113,6 +113,14 @@ jobs:
       # nouveau conteneur a bien démarré et répond.
       - name: Vérifier que le back-office répond
         run: |
+          # Un secret absent donne une adresse `https:///…` sur laquelle curl
+          # échoue à chaque tentative : sans ce garde-fou, la cause se présente
+          # comme une minute d'attente muette suivie d'un échec sans raison.
+          if [ -z "${{ secrets.ADMIN_DOMAIN }}" ]; then
+            echo "::error::Le secret ADMIN_DOMAIN est absent du dépôt : impossible de vérifier que le back-office répond."
+            exit 1
+          fi
+
           # Le conteneur vient d'être recréé : sonder dans la seconde qui suit
           # ne teste que la vitesse de démarrage de Node.
           sleep 10
