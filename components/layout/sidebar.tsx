@@ -5,13 +5,16 @@ import { usePathname } from 'next/navigation';
 import {
   BarChart3,
   Boxes,
+  FileText,
   FolderTree,
   LayoutDashboard,
   LifeBuoy,
   Megaphone,
+  Newspaper,
   Package,
   Settings,
   ShoppingBag,
+  Signpost,
   Tag,
   Tags,
   Users,
@@ -51,6 +54,9 @@ const groups = [
   {
     label: 'Boutique',
     items: [
+      { href: '/contenu/pages', label: 'Pages', icon: FileText },
+      { href: '/contenu/articles', label: 'Articles', icon: Newspaper },
+      { href: '/contenu/redirections', label: 'Redirections', icon: Signpost },
       { href: '/campagnes', label: 'Campagnes', icon: Megaphone },
       { href: '/statistiques', label: 'Statistiques', icon: BarChart3 },
     ],
