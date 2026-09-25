@@ -2,11 +2,52 @@ import { notFound, redirect } from 'next/navigation';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Cell, NumCell, Row, Table } from '@/components/ui/table';
 import { money, number, shortDate } from '@/lib/format';
-import { getOrderDetail } from '@/lib/data/orders';
+import { getOrderDetail, type OrderLine } from '@/lib/data/orders';
 import { getSession } from '@/lib/current-session';
 import { PrintButton } from './print-button';
 
 export const dynamic = 'force-dynamic';
+
+/** Le tableau de prélèvement, identique qu'il couvre un colis ou la commande. */
+function PickingTable({ lines }: { lines: OrderLine[] }) {
+  return (
+    <Table
+      caption="Articles à préparer, avec leur référence, leur quantité et leurs numéros de lot"
+      minWidth="min-w-0"
+      columns={[
+        { label: 'Article' },
+        { label: 'Lots' },
+        { label: 'Quantité', align: 'right' },
+        { label: 'Préparé', align: 'right' },
+      ]}
+    >
+      {lines.map((line) => (
+        <Row key={line.id}>
+          <Cell>
+            <span className="block text-ink-900">{line.label}</span>
+            <span className="mt-0.5 block font-mono text-xs text-ink-500" translate="no">
+              {line.sku}
+              {line.variantName ? ` · ${line.variantName}` : ''}
+            </span>
+          </Cell>
+          <Cell className="font-mono text-xs text-ink-600">
+            {line.lotNumbers.length > 0 ? line.lotNumbers.join(', ') : '—'}
+          </Cell>
+          <NumCell>{number(line.quantity)}</NumCell>
+          <Cell align="right">
+            {/* Une case à cocher sur papier : c'est le geste de celui qui
+                prépare, il n'a pas d'écran sous la main dans la réserve. */}
+            <span
+              aria-hidden
+              className="inline-block size-5 rounded-[3px] ring-1 ring-ink-400 ring-inset"
+            />
+            <span className="sr-only">À cocher une fois l’article prélevé</span>
+          </Cell>
+        </Row>
+      ))}
+    </Table>
+  );
+}
 
 export async function generateMetadata({ params }: PageProps<'/commandes/[numero]/bon'>) {
   const { numero } = await params;
@@ -34,7 +75,21 @@ export default async function PickingSlipPage({ params }: PageProps<'/commandes/
   const detail = await getOrderDetail(session, decodeURIComponent(numero));
   if (!detail) notFound();
 
-  const { order, shippingAddress } = detail;
+  const { order, shippingAddress, parcels } = detail;
+
+  /* Deux colis planifiés, deux emballages à monter : le préparateur a besoin
+     de savoir ce qui va dans lequel, sinon la répartition décidée au paiement
+     se perd entre la réserve et le quai. Un seul colis n'a rien à découper. */
+  const byParcel =
+    parcels.length > 1
+      ? parcels.map((parcel) => ({
+          parcel,
+          lines: parcel.lines.flatMap((entry) => {
+            const line = order.lines.find((candidate) => candidate.id === entry.orderItemId);
+            return line ? [{ ...line, quantity: entry.quantity }] : [];
+          }),
+        }))
+      : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -109,43 +164,26 @@ export default async function PickingSlipPage({ params }: PageProps<'/commandes/
           </div>
         </section>
 
-        <section className="mt-6 min-w-0">
-          <Table
-            caption="Articles à préparer, avec leur référence, leur quantité et leurs numéros de lot"
-            minWidth="min-w-0"
-            columns={[
-              { label: 'Article' },
-              { label: 'Lots' },
-              { label: 'Quantité', align: 'right' },
-              { label: 'Préparé', align: 'right' },
-            ]}
-          >
-            {order.lines.map((line) => (
-              <Row key={line.id}>
-                <Cell>
-                  <span className="block text-ink-900">{line.label}</span>
-                  <span className="mt-0.5 block font-mono text-xs text-ink-500" translate="no">
-                    {line.sku}
-                    {line.variantName ? ` · ${line.variantName}` : ''}
-                  </span>
-                </Cell>
-                <Cell className="font-mono text-xs text-ink-600">
-                  {line.lotNumbers.length > 0 ? line.lotNumbers.join(', ') : '—'}
-                </Cell>
-                <NumCell>{number(line.quantity)}</NumCell>
-                <Cell align="right">
-                  {/* Une case à cocher sur papier : c'est le geste de celui qui
-                      prépare, il n'a pas d'écran sous la main dans la réserve. */}
-                  <span
-                    aria-hidden
-                    className="inline-block size-5 rounded-[3px] ring-1 ring-ink-400 ring-inset"
-                  />
-                  <span className="sr-only">À cocher une fois l’article prélevé</span>
-                </Cell>
-              </Row>
-            ))}
-          </Table>
-        </section>
+        {byParcel ? (
+          byParcel.map(({ parcel, lines }) => (
+            <section key={parcel.id} className="mt-6 min-w-0 break-inside-avoid">
+              <h2 className="text-sm font-semibold text-ink-900">
+                Colis {parcel.index} sur {parcel.total}
+                <span className="ml-2 font-normal text-ink-600">
+                  {parcel.methodName ?? 'Mode non renseigné'}
+                </span>
+              </h2>
+              {parcel.requiresSlot ? (
+                <p className="mt-0.5 text-xs text-warning">Créneau à convenir avec le client</p>
+              ) : null}
+              <PickingTable lines={lines} />
+            </section>
+          ))
+        ) : (
+          <section className="mt-6 min-w-0">
+            <PickingTable lines={order.lines} />
+          </section>
+        )}
 
         <footer className="mt-6 flex flex-wrap items-end justify-between gap-4 border-t border-ink-200 pt-5">
           <p className="max-w-xs text-xs text-ink-500">

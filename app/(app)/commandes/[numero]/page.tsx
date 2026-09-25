@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { Check, FileText, MapPin, Printer } from 'lucide-react';
+import { Check, FileText, MapPin, Package, Printer } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/detail-header';
 import { Badge, Dot } from '@/components/ui/badge';
 import { LinkButton } from '@/components/ui/button';
@@ -34,7 +34,7 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
   // en cache comme une fiche valide.
   if (!detail) notFound();
 
-  const { order, totals, timeline, shippingAddress } = detail;
+  const { order, totals, timeline, shippingAddress, parcels } = detail;
   const status = ORDER_STATUSES[order.status];
   const inclusive = order.pricesIncludeTax;
 
@@ -286,6 +286,66 @@ export default async function OrderPage({ params }: PageProps<'/commandes/[numer
               ]}
             />
           </Card>
+
+          {/* Une commande scindée au paiement arrive ici avec ses colis déjà
+              planifiés, chacun portant son mode et ses articles. Sans cet
+              écran, le préparateur voyait « 2 colis » sans savoir quoi mettre
+              dans lequel. */}
+          {parcels.length > 0 ? (
+            <Card className="min-w-0">
+              <CardHeader
+                title={parcels.length > 1 ? `${parcels.length} colis` : 'Colis'}
+                description={
+                  parcels.length > 1
+                    ? 'Modes de livraison incompatibles entre eux'
+                    : 'Contenu et mode de livraison'
+                }
+                action={<Package aria-hidden className="size-4 text-ink-400" />}
+              />
+              <ul className="divide-y divide-ink-200/70">
+                {parcels.map((parcel) => (
+                  <li key={parcel.id} className="px-5 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-ink-900">
+                        {parcel.total > 1 ? `Colis ${parcel.index} sur ${parcel.total}` : 'Colis'}
+                      </span>
+                      <Badge tone={parcel.tone}>
+                        <Dot />
+                        {parcel.statusLabel}
+                      </Badge>
+                    </div>
+
+                    <p className="mt-1 text-sm text-ink-600">
+                      {parcel.methodName ?? 'Mode non renseigné'}
+                      {parcel.carrierName ? ` — ${parcel.carrierName}` : null}
+                    </p>
+
+                    {parcel.requiresSlot ? (
+                      <p className="mt-0.5 text-xs text-warning">Créneau à convenir avec le client</p>
+                    ) : null}
+
+                    <ul className="mt-2 space-y-0.5 text-sm text-ink-700">
+                      {parcel.lines.map((line, index) => (
+                        <li key={`${parcel.id}-${index}`}>
+                          {line.label}
+                          <span className="font-mono text-ink-500" data-numeric>
+                            {' '}
+                            × {number(line.quantity)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    {parcel.trackingNumber ? (
+                      <p className="mt-2 font-mono text-xs text-ink-500" data-numeric>
+                        Suivi {parcel.trackingNumber}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>

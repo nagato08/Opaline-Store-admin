@@ -87,11 +87,20 @@ type ApiTaxLine = { name: string; ratePercent: string; taxableCents: number; amo
 type ApiStatusHistoryEntry = { toStatus: ApiOrderStatus; reason: string | null; createdAt: string };
 
 type ApiShipment = {
+  id: string;
   status: string;
   trackingNumber: string | null;
   shippedAt: string | null;
   deliveredAt: string | null;
   carrier: { name: string } | null;
+  /* Le mode survit à l'absence de transporteur : un colis planifié au
+     paiement porte le choix du client, l'affectation vient après. */
+  method?: {
+    code: string;
+    requiresSlot: boolean;
+    translations?: Array<{ locale: string; name: string }>;
+  } | null;
+  items?: Array<{ orderItemId: string; quantity: string }>;
 };
 
 /** Forme commune à `GET /admin/orders` (liste) et `GET /admin/orders/:id` (fiche). */
@@ -180,10 +189,88 @@ export type OrderTotals = {
 
 export type TimelineEntry = { label: string; detail: string; at: string; done: boolean };
 
+/** Nom français du mode, avec repli sur le code quand la traduction manque. */
+function methodName(shipment: ApiShipment): string | null {
+  const method = shipment.method;
+  if (!method) return null;
+  return method.translations?.find((translation) => translation.locale === 'FR')?.name ?? method.code;
+}
+
+/**
+ * Ce qui part, et comment.
+ *
+ * Une commande scindée au paiement — produits frais d'un côté, articles
+ * encombrants de l'autre — porte plusieurs colis avec chacun son mode. Un
+ * libellé unique mentirait, d'où le décompte à partir de deux.
+ */
 function shippingLabel(order: ApiOrder): string {
-  const shipment = order.shipments?.[0];
-  if (shipment?.carrier?.name) return shipment.carrier.name;
+  const shipments = order.shipments ?? [];
+  if (shipments.length > 1) return `${shipments.length} colis`;
+
+  const shipment = shipments[0];
+  const named = shipment ? (methodName(shipment) ?? shipment.carrier?.name) : null;
+  if (named) return named;
+
   return order.shippingCents > 0 ? 'Livraison standard' : 'Livraison offerte';
+}
+
+/** Colis d'une commande, planifié ou déjà parti. */
+export type OrderParcel = {
+  id: string;
+  /** Rang d'affichage : « Colis 1 sur 2 ». */
+  index: number;
+  total: number;
+  methodName: string | null;
+  carrierName: string | null;
+  requiresSlot: boolean;
+  status: string;
+  statusLabel: string;
+  tone: BadgeTone;
+  trackingNumber: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  /** Lignes rattachées, résolues contre la commande. */
+  lines: Array<{ orderItemId: string; label: string; quantity: number }>;
+};
+
+const PARCEL_STATUS: Record<string, { label: string; tone: BadgeTone }> = {
+  PENDING: { label: 'À préparer', tone: 'warning' },
+  SHIPPED: { label: 'Expédié', tone: 'info' },
+  IN_TRANSIT: { label: 'En transit', tone: 'info' },
+  DELIVERED: { label: 'Livré', tone: 'success' },
+  RETURNED: { label: 'Retourné', tone: 'danger' },
+  CANCELLED: { label: 'Annulé', tone: 'neutral' },
+};
+
+/**
+ * Colis de la commande, prêts à afficher.
+ *
+ * Les lignes d'un colis désignent des `orderItemId` : sans la résolution
+ * faite ici, l'écran n'aurait que des identifiants à montrer au préparateur.
+ */
+export function orderParcels(order: ApiOrder): OrderParcel[] {
+  const shipments = order.shipments ?? [];
+  const labels = new Map(order.items.map((item) => [item.id, item.name] as const));
+
+  return shipments.map((shipment, position) => ({
+    id: shipment.id,
+    index: position + 1,
+    total: shipments.length,
+    methodName: methodName(shipment),
+    carrierName: shipment.carrier?.name ?? null,
+    requiresSlot: shipment.method?.requiresSlot ?? false,
+    status: shipment.status,
+    statusLabel: PARCEL_STATUS[shipment.status]?.label ?? shipment.status,
+    tone: PARCEL_STATUS[shipment.status]?.tone ?? 'neutral',
+    trackingNumber: shipment.trackingNumber,
+    shippedAt: shipment.shippedAt,
+    deliveredAt: shipment.deliveredAt,
+    lines: (shipment.items ?? []).map((item) => ({
+      orderItemId: item.orderItemId,
+      label: labels.get(item.orderItemId) ?? 'Article retiré du catalogue',
+      quantity: Number(item.quantity),
+    })),
+  }));
 }
 
 function customerName(order: ApiOrder): string {
@@ -363,7 +450,13 @@ export async function listOrdersByLot(session: SessionData, lotNumber: string): 
 export async function getOrderDetail(
   session: SessionData,
   number: string,
-): Promise<{ order: AdminOrder; totals: OrderTotals; timeline: TimelineEntry[]; shippingAddress: ApiAddress | null } | null> {
+): Promise<{
+  order: AdminOrder;
+  totals: OrderTotals;
+  timeline: TimelineEntry[];
+  shippingAddress: ApiAddress | null;
+  parcels: OrderParcel[];
+} | null> {
   const page = await apiFetch<{ items: ApiOrder[] }>(
     session,
     `/admin/orders?${new URLSearchParams({ search: number, perPage: '5' })}`,
@@ -378,6 +471,7 @@ export async function getOrderDetail(
     totals: orderTotals(detail),
     timeline: orderTimeline(detail),
     shippingAddress: detail.addresses?.find((address) => address.type === 'SHIPPING') ?? null,
+    parcels: orderParcels(detail),
   };
 }
 
